@@ -102,3 +102,8 @@ coverage/
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
 web-app/tsconfig.tsbuildinfo
+
+# SSH deploy keys (never commit)
+sentineiwatch
+sentineiwatch.pub
+*.pem
