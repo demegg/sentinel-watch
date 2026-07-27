@@ -1,11 +1,11 @@
 "use client";
 
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSWStore, type OverlayKey } from "@/store/sw-store";
-import { Thermometer, CloudRain, Wind, Layers } from "lucide-react";
-import type { ReactNode } from "react";
+import { Thermometer, CloudRain, Wind, Layers, ChevronDown } from "lucide-react";
 
 const OPTIONS: { id: OverlayKey; label: string; icon: ReactNode; color: string }[] = [
-  { id: "none", label: "Off", icon: <Layers size={12} />, color: "#64748b" },
+  { id: "none", label: "Layers off", icon: <Layers size={12} />, color: "#64748b" },
   { id: "temp", label: "Climate", icon: <Thermometer size={12} />, color: "#f97316" },
   { id: "precip", label: "Rain", icon: <CloudRain size={12} />, color: "#3b82f6" },
   { id: "wind", label: "Wind", icon: <Wind size={12} />, color: "#4ade80" },
@@ -25,45 +25,59 @@ async function ensureRadar() {
 export default function OverlayControls() {
   const overlay = useSWStore((s) => s.overlay);
   const setOverlay = useSWStore((s) => s.setOverlay);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const current = OPTIONS.find((o) => o.id === overlay) ?? OPTIONS[0];
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
 
   const activate = async (id: OverlayKey) => {
     setOverlay(id);
+    setOpen(false);
     if (id === "precip") await ensureRadar();
-    // Climate/wind loads from visible map bounds via ClimateOverlayLoader
   };
 
   return (
-    <div className="sw-overlays">
-      <div style={{ fontSize: 9, letterSpacing: "0.2em", color: "#475569", padding: "2px 6px" }}>
-        LIVE LAYERS
-      </div>
-      {OPTIONS.map((o) => {
-        const on = overlay === o.id;
-        return (
-          <button
-            key={o.id}
-            onClick={() => void activate(o.id)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 10px",
-              borderRadius: 5,
-              cursor: "pointer",
-              border: `1px solid ${on ? o.color + "66" : "transparent"}`,
-              background: on ? `${o.color}18` : "transparent",
-              color: on ? o.color : "#64748b",
-              fontSize: 11,
-              fontWeight: on ? 600 : 400,
-            }}
-          >
-            {o.icon}
-            <span className="sw-overlay-label">{o.label}</span>
-          </button>
-        );
-      })}
-
-      {overlay === "temp" && (
+    <div className="sw-overlays sw-overlay-dropdown" ref={wrapRef}>
+      <button
+        type="button"
+        className="sw-view-dropdown-trigger"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{ color: current.color }}
+      >
+        {current.icon}
+        <span className="sw-overlay-label">{current.label}</span>
+        <ChevronDown size={12} style={{ opacity: 0.7, transform: open ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+      </button>
+      {open && (
+        <div className="sw-view-dropdown-menu sw-overlay-dropdown-menu" role="listbox">
+          {OPTIONS.map((o) => {
+            const on = overlay === o.id;
+            return (
+              <button
+                key={o.id}
+                type="button"
+                role="option"
+                aria-selected={on}
+                className={`sw-view-dropdown-item${on ? " is-active" : ""}`}
+                style={{ color: on ? o.color : undefined }}
+                onClick={() => void activate(o.id)}
+              >
+                {o.icon}
+                <span>{o.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {overlay === "temp" && !open && (
         <Legend
           items={[
             ["#3b82f6", "cold"],
@@ -74,7 +88,7 @@ export default function OverlayControls() {
           ]}
         />
       )}
-      {overlay === "wind" && (
+      {overlay === "wind" && !open && (
         <Legend
           items={[
             ["#4ade80", "calm"],
@@ -83,11 +97,6 @@ export default function OverlayControls() {
             ["#ef4444", "gale"],
           ]}
         />
-      )}
-      {overlay === "precip" && (
-        <div style={{ fontSize: 9, color: "#475569", padding: "2px 6px", maxWidth: 90 }}>
-          Live radar
-        </div>
       )}
     </div>
   );

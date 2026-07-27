@@ -63,7 +63,7 @@ export default function RegionPageWrapper() {
   return (
     <Suspense
       fallback={
-        <div style={pageStyle}>
+        <div className="sw-region-page" style={pageStyle}>
           <LoadingState label="Loading region report…" sublabel="Preparing tourist safety brief" />
         </div>
       }
@@ -117,8 +117,8 @@ function RegionPage() {
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return (
-      <div style={pageStyle}>
-        <Link href="/" style={backLinkStyle}>← Back to map</Link>
+      <div className="sw-region-page" style={pageStyle}>
+        <Link href="/app" style={backLinkStyle}>← Back to map</Link>
         <p style={{ color: "#94a3b8" }}>Invalid coordinates.</p>
       </div>
     );
@@ -131,8 +131,8 @@ function RegionPage() {
   const sections = report?.sections ?? [];
 
   return (
-    <div style={pageStyle}>
-      <Link href="/" style={backLinkStyle}>← Back to map</Link>
+    <div className="sw-region-page" style={pageStyle}>
+      <Link href="/app" style={backLinkStyle}>← Back to map</Link>
 
       <div style={{ maxWidth: 760, width: "100%", display: "flex", flexDirection: "column", gap: 20 }}>
         <header>
@@ -302,10 +302,11 @@ const pageStyle: React.CSSProperties = {
   background: "linear-gradient(160deg, #0a0e14 0%, #0f172a 50%, #0a0e14 100%)",
   color: "#e2e8f0",
   fontFamily: "system-ui, -apple-system, sans-serif",
-  padding: "48px 24px 32px",
+  padding: "48px 24px 80px",
   display: "flex",
   flexDirection: "column",
   alignItems: "center",
+  boxSizing: "border-box",
 };
 
 const backLinkStyle: React.CSSProperties = {

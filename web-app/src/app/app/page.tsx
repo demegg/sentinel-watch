@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useSWStore } from "@/store/sw-store";
 import { hasEnteredAppThisSession } from "@/lib/app-session";
-import { CITIES } from "@/lib/data";
+import { CITIES, type RegionalEvent } from "@/lib/data";
 import { loadRegionalFeeds } from "@/lib/load-feeds";
 import Sidebar from "@/components/hud/Sidebar";
 import TopBar from "@/components/hud/TopBar";
@@ -18,13 +18,27 @@ import { CameraViewer, RadioPlayer } from "@/components/feeds/LocalFeeds";
 const MapLoader = dynamic(() => import("@/components/map/MapLoader"), { ssr: false });
 const GoogleEarthView = dynamic(() => import("@/components/earth/GoogleEarthView"), { ssr: false });
 
+function mergeEvents(primary: RegionalEvent[], secondary: RegionalEvent[], cap = 120) {
+  const seen = new Set<string>();
+  const out: RegionalEvent[] = [];
+  for (const e of [...primary, ...secondary]) {
+    const key = e.id || `${e.kind}-${e.title}-${e.lat.toFixed(2)}-${e.lng.toFixed(2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(e);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
 async function loadGlobalEvents() {
-  const { setEventsLoading, setEvents } = useSWStore.getState();
+  const { setEventsLoading, setEvents, setMapScope } = useSWStore.getState();
   setEventsLoading(true);
   try {
-    const res = await fetch("/api/events?lat=20&lng=0&radius=20000");
+    const res = await fetch("/api/events?lat=20&lng=0&global=1");
     const data = await res.json();
     setEvents(data.events ?? []);
+    setMapScope("global");
   } catch {
     setEvents([]);
   }
@@ -41,7 +55,6 @@ async function refreshOverlays() {
       setRadarPath(null);
     }
   }
-  // Climate/wind refresh handled by map bounds loader
 }
 
 async function loadPlace(q: string) {
@@ -51,10 +64,11 @@ async function loadPlace(q: string) {
     setFocus,
     setMapView,
     pushTerminal,
-    setPanel,
     setSelectedEvent,
     setHazard,
     requestFitRegion,
+    setMapScope,
+    events: existing,
   } = useSWStore.getState();
 
   const lower = q.toLowerCase().trim();
@@ -67,7 +81,7 @@ async function loadPlace(q: string) {
 
   if (!place) {
     try {
-      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/geocode?q=${encodeURIComponent(q)}&count=1`);
       const data = await res.json();
       if (data.place) {
         place = {
@@ -94,21 +108,22 @@ async function loadPlace(q: string) {
   setHazard(null);
   setSelectedEvent(null);
   setFocus(place);
-  // City-focused, but not so tight that regional crises vanish
+  setMapScope("regional");
   setMapView([place.lat, place.lng], 10);
   pushTerminal({ type: "in", text: `goto ${q}` });
   pushTerminal({ type: "out", text: `Navigating to ${place.name}…` });
 
   setEventsLoading(true);
 
-  const evRes = await fetch(`/api/events?lat=${place.lat}&lng=${place.lng}&radius=1500`).catch(() => null);
+  const evRes = await fetch(
+    `/api/events?lat=${place.lat}&lng=${place.lng}&radius=3000`
+  ).catch(() => null);
   const evData = evRes?.ok ? await evRes.json() : null;
-  setEvents(evData?.events ?? []);
+  const regional: RegionalEvent[] = evData?.events ?? [];
+  // Keep worldwide crises while adding regional ones so zoom-out still shows the map populated
+  setEvents(mergeEvents(regional, existing));
 
-  // Load regional cameras/radio in background (can take a few seconds)
   const feedsPromise = loadRegionalFeeds(place);
-
-  // Fit city pin + nearby crisis markers into view (keeps "stuff around" visible)
   requestFitRegion();
   void refreshOverlays();
 
@@ -116,8 +131,31 @@ async function loadPlace(q: string) {
 
   pushTerminal({
     type: "out",
-    text: `${place.name}: ${evData?.events?.length ?? 0} regional events · ${feeds.cameras} cams · ${feeds.radios} radio`,
+    text: `${place.name}: ${regional.length} nearby · ${useSWStore.getState().events.length} on map · ${feeds.cameras} cams · ${feeds.radios} radio`,
   });
+}
+
+async function resetWorldMap() {
+  const {
+    setFocus,
+    setMapView,
+    setSelectedEvent,
+    setHazard,
+    setActiveCamera,
+    setPanel,
+    pushTerminal,
+    setMapScope,
+  } = useSWStore.getState();
+
+  setFocus(null);
+  setSelectedEvent(null);
+  setHazard(null);
+  setActiveCamera(null);
+  setMapScope("global");
+  setMapView([20, 0], 2);
+  setPanel("events");
+  pushTerminal({ type: "out", text: "Reset to world map." });
+  await loadGlobalEvents();
 }
 
 export default function AppView() {
@@ -140,14 +178,20 @@ export default function AppView() {
     void loadPlace(q);
   }, []);
 
+  const handleResetWorld = useCallback(() => {
+    void resetWorldMap();
+  }, []);
+
   if (!sessionReady) return null;
 
   return (
-    <div className="sw-app-shell sw-app-enter" style={{ position: "fixed", inset: 0, width: "100%", height: "100dvh", overflow: "hidden" }}>
+    <div
+      className="sw-app-shell sw-app-enter"
+      style={{ position: "fixed", inset: 0, width: "100%", height: "100dvh", overflow: "hidden" }}
+    >
       {viewMode === "map" && <MapLoader />}
       {viewMode === "earth" && <GoogleEarthView />}
 
-      {/* Glass HUD overlays on top of map */}
       <div
         style={{
           position: "absolute",
@@ -156,7 +200,7 @@ export default function AppView() {
           pointerEvents: "none",
         }}
       >
-        <TopBar onSearch={handleSearch} />
+        <TopBar onSearch={handleSearch} onResetWorld={handleResetWorld} />
         <Sidebar />
         <ViewModeControls />
         {viewMode === "map" && <OverlayControls />}

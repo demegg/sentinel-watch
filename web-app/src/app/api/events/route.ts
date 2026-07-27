@@ -258,11 +258,14 @@ async function fetchOutageRisks(lat: number, lng: number) {
 export async function GET(req: NextRequest) {
   const lat = Number(req.nextUrl.searchParams.get("lat"));
   const lng = Number(req.nextUrl.searchParams.get("lng"));
-  const radiusKm = clampRadiusKm(
-    Number(req.nextUrl.searchParams.get("radius") ?? 800),
-    800,
-    MAX_EVENT_RADIUS_KM
-  );
+  const global = req.nextUrl.searchParams.get("global") === "1";
+  const radiusKm = global
+    ? Number.POSITIVE_INFINITY
+    : clampRadiusKm(
+        Number(req.nextUrl.searchParams.get("radius") ?? 800),
+        800,
+        MAX_EVENT_RADIUS_KM
+      );
 
   if (!isValidLatLng(lat, lng)) {
     return NextResponse.json({ error: "Valid lat/lng required" }, { status: 400 });
@@ -294,12 +297,13 @@ export async function GET(req: NextRequest) {
       if (sr !== 0) return sr;
       return a.distanceKm - b.distanceKm;
     })
-    .slice(0, 80);
+    .slice(0, global ? 120 : 80);
 
   return NextResponse.json({
     lat,
     lng,
-    radiusKm,
+    radiusKm: global ? null : radiusKm,
+    global,
     count: events.length,
     events,
     sources: {

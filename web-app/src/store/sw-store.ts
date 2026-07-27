@@ -69,6 +69,9 @@ interface SWStore {
   fitRegionId: number;
   requestFitRegion: () => void;
 
+  mapScope: "global" | "regional";
+  setMapScope: (scope: "global" | "regional") => void;
+
   overlay: OverlayKey;
   setOverlay: (o: OverlayKey) => void;
 
@@ -137,6 +140,9 @@ export const useSWStore = create<SWStore>((set) => ({
 
   fitRegionId: 0,
   requestFitRegion: () => set((s) => ({ fitRegionId: s.fitRegionId + 1 })),
+
+  mapScope: "global",
+  setMapScope: (scope) => set({ mapScope: scope }),
 
   overlay: "none",
   setOverlay: (o) => set({ overlay: o }),

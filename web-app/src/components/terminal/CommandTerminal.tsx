@@ -42,11 +42,18 @@ async function resolvePlace(q: string): Promise<LocationPin | { error: string }>
 }
 
 async function loadIntel(lat: number, lng: number, name: string, countryCode?: string, country?: string) {
-  const { setEventsLoading, setEvents } = useSWStore.getState();
+  const { setEventsLoading, setEvents, setMapScope, events: existing } = useSWStore.getState();
   setEventsLoading(true);
-  const evRes = await fetch(`/api/events?lat=${lat}&lng=${lng}&radius=1500`).catch(() => null);
+  setMapScope("regional");
+  const evRes = await fetch(`/api/events?lat=${lat}&lng=${lng}&radius=3000`).catch(() => null);
   const evData = evRes?.ok ? await evRes.json() : null;
-  setEvents(evData?.events ?? []);
+  const regional = evData?.events ?? [];
+  const seen = new Set(regional.map((e: { id: string }) => e.id));
+  const merged = [
+    ...regional,
+    ...existing.filter((e) => !seen.has(e.id)),
+  ].slice(0, 120);
+  setEvents(merged);
 
   const place: LocationPin = {
     id: "terminal-place",
@@ -60,7 +67,7 @@ async function loadIntel(lat: number, lng: number, name: string, countryCode?: s
   const feeds = await loadRegionalFeeds(place);
 
   return {
-    events: evData?.events?.length ?? 0,
+    events: regional.length,
     cameras: feeds.cameras,
     radios: feeds.radios,
   };

@@ -3,6 +3,7 @@
 export const MAX_EVENT_RADIUS_KM = 3000;
 export const MAX_FEED_RADIUS_KM = 100;
 export const MAX_QUERY_LEN = 120;
+export const MAX_GEOCODE_RESULTS = 8;
 
 /** Valid geographic coordinates. */
 export function isValidLatLng(lat: number, lng: number): boolean {
