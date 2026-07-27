@@ -11,6 +11,9 @@ import {
   MAX_FEED_RADIUS_KM,
 } from "@/lib/security";
 
+/** Allow longer discovery fan-out on Pro; Hobby still caps lower. */
+export const maxDuration = 60;
+
 function offsetAround(lat: number, lng: number, index: number, total: number) {
   const radiusDeg = 0.025 + (index % 5) * 0.008;
   const angle = (index / Math.max(total, 1)) * Math.PI * 2;

@@ -107,3 +107,7 @@ web-app/tsconfig.tsbuildinfo
 sentineiwatch
 sentineiwatch.pub
 *.pem
+
+# Vercel
+.vercel/
+web-app/.vercel/

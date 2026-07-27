@@ -58,8 +58,14 @@ const cameraIcon = L.divIcon({
   iconAnchor: [9, 9],
 });
 
-const WORLD_BOUNDS: L.LatLngBoundsExpression = [[-85, -180], [85, 180]];
-const RADAR_BOUNDS: L.LatLngBoundsExpression = [[-85, -180], [85, 180]];
+const WORLD_CORNERS: [L.LatLngTuple, L.LatLngTuple] = [
+  [-85, -180],
+  [85, 180],
+];
+const RADAR_BOUNDS: L.LatLngBoundsExpression = [
+  [-85, -180],
+  [85, 180],
+];
 const MAX_ZOOM = 18;
 const FALLBACK_CENTER: L.LatLngExpression = [20, 0];
 const FALLBACK_ZOOM = 2;
@@ -75,7 +81,7 @@ function MapWorldSetup() {
   const initialized = useRef(false);
 
   useEffect(() => {
-    const bounds = L.latLngBounds(WORLD_BOUNDS);
+    const bounds = L.latLngBounds(WORLD_CORNERS[0], WORLD_CORNERS[1]);
     map.setMaxBounds(bounds);
     map.options.maxBoundsViscosity = 1;
 
@@ -232,7 +238,7 @@ export default function CrisisMap() {
       zoom={2}
       minZoom={1}
       maxZoom={MAX_ZOOM}
-      maxBounds={WORLD_BOUNDS}
+      maxBounds={WORLD_CORNERS}
       maxBoundsViscosity={1}
       worldCopyJump={false}
       style={{ height: "100%", width: "100%", background: "#0a0e14" }}

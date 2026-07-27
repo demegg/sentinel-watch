@@ -9,7 +9,8 @@
     "predev": "node scripts/check-node.mjs",
     "dev": "NEXT_TEST_WASM=1 NEXT_TEST_WASM_DIR=$PWD/node_modules/@next/swc-wasm-nodejs next dev --webpack -H 0.0.0.0 -p 3100",
     "prebuild": "node scripts/check-node.mjs",
-    "build": "NEXT_TEST_WASM=1 NEXT_TEST_WASM_DIR=$PWD/node_modules/@next/swc-wasm-nodejs next build --webpack",
+    "build": "next build",
+    "build:local-wasm": "NEXT_TEST_WASM=1 NEXT_TEST_WASM_DIR=$PWD/node_modules/@next/swc-wasm-nodejs next build --webpack",
     "start": "next start -H 0.0.0.0 -p 3100",
     "lint": "eslint"
   },
