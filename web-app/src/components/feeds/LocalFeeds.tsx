@@ -259,10 +259,28 @@ export function CameraViewer() {
           />
         )}
         {cam.kind === "page" && (
-          <iframe title={cam.name} src={stream}
-            style={{ width: "100%", maxWidth: 900, height: "100%", border: 0, background: "#000" }}
-            sandbox="allow-scripts allow-same-origin allow-popups"
-            referrerPolicy="no-referrer" />
+          <div
+            style={{
+              maxWidth: 480,
+              padding: 20,
+              textAlign: "center",
+              color: "#94a3b8",
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}
+          >
+            <p style={{ margin: "0 0 12px" }}>
+              This source opens as an external page (not embedded) to avoid third-party script risk.
+            </p>
+            <a
+              href={stream}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#22d3ee", fontWeight: 600 }}
+            >
+              Open live page ↗
+            </a>
+          </div>
         )}
       </div>
     </div>

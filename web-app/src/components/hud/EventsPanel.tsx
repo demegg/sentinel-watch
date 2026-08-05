@@ -8,6 +8,7 @@ import { EVENT_EMOJI, EVENT_COLORS, severityColor } from "@/lib/data";
 import { safeHttpUrl } from "@/lib/security";
 import RelativeTime from "@/components/ui/RelativeTime";
 import LoadingState from "@/components/ui/LoadingState";
+import TrustBar, { SourceBadge } from "@/components/ui/TrustBar";
 
 const SEVERITY_ORDER: RegionalEvent["severity"][] = [
   "critical",
@@ -65,9 +66,10 @@ function EventRow({
         >
           {ev.title}
         </div>
-        <div style={{ fontSize: 10, color: "#475569", marginTop: 2 }}>
-          {ev.source} · <RelativeTime ts={ev.timestamp} />
-          {ev.distanceKm < 9000 ? ` · ${ev.distanceKm.toFixed(0)} km` : ""}
+        <div style={{ fontSize: 10, color: "#475569", marginTop: 2, display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <SourceBadge source={ev.source} />
+          <RelativeTime ts={ev.timestamp} />
+          {ev.distanceKm < 9000 ? <span>· {ev.distanceKm.toFixed(0)} km</span> : null}
         </div>
       </div>
     </button>
@@ -168,6 +170,8 @@ function SeverityDropdown({
 export default function EventsPanel() {
   const events = useSWStore((s) => s.events);
   const eventsLoading = useSWStore((s) => s.eventsLoading);
+  const eventsFetchedAt = useSWStore((s) => s.eventsFetchedAt);
+  const eventsSources = useSWStore((s) => s.eventsSources);
   const selectedEvent = useSWStore((s) => s.selectedEvent);
   const setSelectedEvent = useSWStore((s) => s.setSelectedEvent);
   const setMapView = useSWStore((s) => s.setMapView);
@@ -219,6 +223,12 @@ export default function EventsPanel() {
 
   return (
     <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
+      <TrustBar
+        compact
+        sources={eventsSources.length ? eventsSources : ["USGS", "NASA EONET", "GDACS", "Wikidata"]}
+        fetchedAt={eventsFetchedAt}
+      />
+
       {/* Selected event detail — stays pinned at top */}
       {selectedEvent && (
         <div

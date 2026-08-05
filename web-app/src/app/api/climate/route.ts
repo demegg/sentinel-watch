@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WMO_WEATHER } from "@/lib/data";
-import { isValidLatLng } from "@/lib/security";
+import { isValidLatLng, safeClientError } from "@/lib/security";
 
 const MAX_POINTS = 140;
 
@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Climate unavailable", points: [] },
+      { error: safeClientError(err, "Climate unavailable"), points: [] },
       { status: 502 }
     );
   }

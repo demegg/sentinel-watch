@@ -7,13 +7,42 @@ import {
   type RegionHazard,
 } from "@/lib/region-advisories";
 import { resolvePlaceEnglish } from "@/lib/resolve-place";
-import { isValidLatLng } from "@/lib/security";
+import { computeRiskScore } from "@/lib/risk-score";
+import { isValidLatLng, safeHttpUrl } from "@/lib/security";
 
 function severityFromMag(mag: number): RegionalEvent["severity"] {
   if (mag >= 6) return "critical";
   if (mag >= 5) return "high";
   if (mag >= 4) return "medium";
   return "low";
+}
+
+function mapEonetCategory(id: string): RegionalEvent["kind"] {
+  if (id === "wildfires") return "wildfire";
+  if (id === "severeStorms") return "storm";
+  if (id === "volcanoes") return "volcano";
+  if (id === "floods") return "flood";
+  if (id === "drought") return "drought";
+  return "other";
+}
+
+function mapGdacsType(t: string): RegionalEvent["kind"] {
+  switch (t) {
+    case "EQ":
+      return "earthquake";
+    case "TC":
+      return "storm";
+    case "FL":
+      return "flood";
+    case "VO":
+      return "volcano";
+    case "WF":
+      return "wildfire";
+    case "DR":
+      return "drought";
+    default:
+      return "disaster";
+  }
 }
 
 async function nearbyQuakes(lat: number, lng: number) {
@@ -44,7 +73,9 @@ async function nearbyQuakes(lat: number, lng: number) {
         url: f.properties.url,
       });
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return events.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 8);
 }
 
@@ -65,7 +96,10 @@ async function nearbyConflicts(lat: number, lng: number) {
     const res = await fetch(url, {
       next: { revalidate: 3600 },
       signal: AbortSignal.timeout(12000),
-      headers: { Accept: "application/sparql-results+json", "User-Agent": "SentinelWatch/1.0" },
+      headers: {
+        Accept: "application/sparql-results+json",
+        "User-Agent": "SentinelWatch/1.0",
+      },
     });
     if (!res.ok) return events;
     const data = await res.json();
@@ -91,8 +125,171 @@ async function nearbyConflicts(lat: number, lng: number) {
         url: row.item?.value,
       });
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return events.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 6);
+}
+
+async function nearbyEonet(lat: number, lng: number) {
+  const events: RegionalEvent[] = [];
+  try {
+    const res = await fetch(
+      "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=80",
+      { next: { revalidate: 300 }, signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return events;
+    const data = await res.json();
+    for (const ev of data.events ?? []) {
+      const geom = ev.geometry?.[ev.geometry.length - 1];
+      if (!geom?.coordinates) continue;
+      const [elng, elat] = geom.coordinates;
+      const dist = haversineKm(lat, lng, elat, elng);
+      if (dist > 600) continue;
+      const cat = ev.categories?.[0]?.id ?? "other";
+      const kind = mapEonetCategory(cat);
+      events.push({
+        id: `eonet-${ev.id}`,
+        kind,
+        title: ev.title,
+        detail: `${ev.categories?.[0]?.title ?? "Event"} · ${dist.toFixed(0)}km away`,
+        lat: elat,
+        lng: elng,
+        distanceKm: dist,
+        severity: kind === "wildfire" || kind === "storm" ? "high" : "medium",
+        timestamp: geom.date ? Date.parse(geom.date) : Date.now(),
+        source: "NASA EONET",
+        url: ev.link,
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+  return events.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 8);
+}
+
+async function nearbyGdacs(lat: number, lng: number) {
+  const events: RegionalEvent[] = [];
+  try {
+    const to = new Date();
+    const from = new Date(Date.now() - 7 * 86400000);
+    const res = await fetch(
+      `https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist=EQ;TC;FL;VO;WF;DR&fromdate=${from.toISOString().slice(0, 10)}&todate=${to.toISOString().slice(0, 10)}`,
+      { next: { revalidate: 300 }, signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return events;
+    const data = await res.json();
+    for (const f of data.features ?? []) {
+      const [glng, glat] = f.geometry?.coordinates ?? [];
+      if (glat == null || glng == null) continue;
+      const dist = haversineKm(lat, lng, glat, glng);
+      if (dist > 700) continue;
+      const props = f.properties ?? {};
+      const kind = mapGdacsType(props.eventtype);
+      const alert = String(props.alertlevel ?? "").toLowerCase();
+      const severity: RegionalEvent["severity"] =
+        alert.includes("red")
+          ? "critical"
+          : alert.includes("orange")
+            ? "high"
+            : "medium";
+      events.push({
+        id: `gdacs-${props.eventtype}-${props.eventid}-${props.episodeid}`,
+        kind,
+        title: props.name || props.eventname || "GDACS alert",
+        detail: `${kind} · ${dist.toFixed(0)}km away`,
+        lat: glat,
+        lng: glng,
+        distanceKm: dist,
+        severity,
+        timestamp: Date.now(),
+        source: "GDACS",
+        url: props.url?.report || props.url?.details,
+      });
+    }
+  } catch {
+    /* ignore */
+  }
+  return events.sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 8);
+}
+
+type NewsItem = {
+  id: string;
+  title: string;
+  link: string;
+  source: string;
+  publishedAt: number;
+  summary: string;
+};
+
+function decodeXml(s: string) {
+  return s
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function regionNews(placeName: string, country: string) {
+  const items: NewsItem[] = [];
+  // Political / governance focus for region reports (not a map layer)
+  const queries = [
+    `${placeName} ${country} (politics OR government OR election OR parliament OR protest OR sanctions OR diplomacy OR conflict) when:14d`,
+    `${country} (politics OR government OR election OR war OR ceasefire) when:7d`,
+  ];
+  try {
+    for (const q of queries) {
+      const url = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+      const res = await fetch(url, {
+        next: { revalidate: 300 },
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          "User-Agent": "SentinelWatch/1.0",
+          Accept: "application/rss+xml, application/xml, text/xml",
+        },
+      });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      for (const block of xml.split(/<item[\s>]/i).slice(1, 10)) {
+        const title = decodeXml(
+          block.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? ""
+        );
+        const link = decodeXml(
+          block.match(/<link[^>]*>([\s\S]*?)<\/link>/i)?.[1] ??
+            block.match(/<guid[^>]*>([\s\S]*?)<\/guid>/i)?.[1] ??
+            ""
+        );
+        const source =
+          decodeXml(block.match(/<source[^>]*>([\s\S]*?)<\/source>/i)?.[1] ?? "") ||
+          "Google News";
+        const pub = block.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i)?.[1] ?? "";
+        const desc = decodeXml(
+          block.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1] ?? ""
+        );
+        const safeLink = safeHttpUrl(link);
+        if (!title || !safeLink) continue;
+        if (items.some((n) => n.title.toLowerCase() === title.toLowerCase())) continue;
+        items.push({
+          id: `news-${items.length}-${title.slice(0, 18).replace(/\W+/g, "")}`,
+          title: title.slice(0, 220),
+          link: safeLink,
+          source: source.slice(0, 80),
+          publishedAt: pub ? Date.parse(pub) || Date.now() : Date.now(),
+          summary: desc.slice(0, 180),
+        });
+        if (items.length >= 12) break;
+      }
+      if (items.length >= 12) break;
+    }
+  } catch {
+    /* ignore */
+  }
+  return items.slice(0, 12);
 }
 
 async function weatherHazard(lat: number, lng: number): Promise<RegionHazard | null> {
@@ -135,8 +332,25 @@ async function weatherHazard(lat: number, lng: number): Promise<RegionHazard | n
         avoid: true,
       };
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null;
+}
+
+function mergeUniqueEvents(lists: RegionalEvent[][], cap: number) {
+  const seen = new Set<string>();
+  const out: RegionalEvent[] = [];
+  for (const list of lists) {
+    for (const e of list) {
+      const key = e.id || `${e.kind}-${e.title}-${e.lat.toFixed(2)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(e);
+      if (out.length >= cap) return out;
+    }
+  }
+  return out;
 }
 
 export async function GET(req: NextRequest) {
@@ -159,25 +373,53 @@ export async function GET(req: NextRequest) {
     country = resolved.country;
     countryCode = resolved.countryCode ?? "";
     region = resolved.region ?? "";
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   const hazards = buildRegionHazards({ countryCode, placeName, full });
 
-  const [wx, conflicts, quakes] = await Promise.all([
+  const [wx, conflicts, quakes, eonet, gdacs, news] = await Promise.all([
     weatherHazard(lat, lng),
     nearbyConflicts(lat, lng),
     nearbyQuakes(lat, lng),
+    nearbyEonet(lat, lng),
+    nearbyGdacs(lat, lng),
+    full ? regionNews(placeName, country) : Promise.resolve([] as NewsItem[]),
   ]);
   if (wx) hazards.unshift(wx);
 
-  for (const c of conflicts.slice(0, full ? 6 : 3)) {
+  for (const c of [
+    ...conflicts,
+    ...gdacs.filter((g) => g.severity === "critical" || g.severity === "high"),
+  ].slice(0, full ? 8 : 3)) {
     hazards.push({
       id: `live-${c.id}`,
-      category: "conflict",
-      level: c.severity === "critical" ? "critical" : "high",
+      category: c.kind === "conflict" ? "conflict" : "weather",
+      level:
+        c.severity === "critical"
+          ? "critical"
+          : c.severity === "high"
+            ? "high"
+            : "moderate",
       title: c.title,
-      detail: c.detail,
+      detail: `${c.detail} · source ${c.source}`,
       avoid: c.severity === "critical",
+    });
+  }
+
+  for (const e of eonet.slice(0, full ? 4 : 2)) {
+    hazards.push({
+      id: `live-${e.id}`,
+      category: e.kind === "wildfire" ? "other" : "weather",
+      level:
+        e.severity === "critical"
+          ? "critical"
+          : e.severity === "high"
+            ? "high"
+            : "moderate",
+      title: e.title,
+      detail: `${e.detail} · NASA EONET`,
     });
   }
 
@@ -188,6 +430,27 @@ export async function GET(req: NextRequest) {
   const trimmed = hazards.slice(0, popupLimit);
   const avoidList = hazards.filter((h) => h.avoid).map((h) => h.title);
   const summary = buildTouristSummary(placeName, hazards);
+  const nearbyEvents = mergeUniqueEvents(
+    [conflicts, quakes, gdacs, eonet],
+    full ? 16 : 8
+  );
+
+  const sources = [
+    "Advisories",
+    quakes.length ? "USGS" : null,
+    eonet.length ? "NASA EONET" : null,
+    gdacs.length ? "GDACS" : null,
+    conflicts.length ? "Wikidata" : null,
+    wx ? "Open-Meteo" : null,
+    news.length ? "Google News" : null,
+  ].filter(Boolean) as string[];
+
+  const risk = computeRiskScore({
+    kind: "region",
+    hazardLevels: hazards.map((h) => h.level),
+    eventSeverities: nearbyEvents.map((e) => e.severity),
+    avoidCount: avoidList.length,
+  });
 
   return NextResponse.json({
     lat,
@@ -200,9 +463,13 @@ export async function GET(req: NextRequest) {
     hazards: trimmed,
     avoidList,
     sections: full ? groupHazardsByCategory(trimmed) : undefined,
-    nearbyEvents: [...conflicts, ...quakes].slice(0, full ? 12 : 8),
+    nearbyEvents,
+    news,
+    sources,
+    risk,
     totalAdvisories: hazards.length,
     fetchedAt: Date.now(),
-    disclaimer: "General situational awareness for tourists — not official government travel advice. Verify with local authorities and your embassy.",
+    disclaimer:
+      "General situational awareness for tourists — not official government travel advice. Verify with local authorities and your embassy. Source timestamps shown when available.",
   });
 }

@@ -5,6 +5,7 @@ import { useSWStore } from "@/store/sw-store";
 import { X, AlertTriangle, ShieldAlert, ArrowRight } from "lucide-react";
 import { severityColor } from "@/lib/data";
 import LoadingState from "@/components/ui/LoadingState";
+import TrustBar, { SourceBadge } from "@/components/ui/TrustBar";
 
 const CAT_COLOR: Record<string, string> = {
   wildlife: "#f97316",
@@ -96,7 +97,13 @@ export default function HazardPopup() {
 
         {!hazardLoading && hazard && (
           <>
-            <p style={{ margin: "0 0 10px", fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
+            <TrustBar
+              compact
+              sources={["Advisories", "USGS", "Wikidata", "Open-Meteo"]}
+              fetchedAt={hazard.fetchedAt}
+            />
+
+            <p style={{ margin: "8px 0 10px", fontSize: 12, color: "#94a3b8", lineHeight: 1.5 }}>
               {hazard.summary}
             </p>
 
@@ -187,6 +194,9 @@ export default function HazardPopup() {
                     </span>{" "}
                     · {ev.title}
                     <span style={{ color: "#475569" }}> · {ev.distanceKm.toFixed(0)} km</span>
+                    <div style={{ marginTop: 3 }}>
+                      <SourceBadge source={ev.source} />
+                    </div>
                   </button>
                 ))}
               </div>

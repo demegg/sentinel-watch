@@ -6,14 +6,18 @@ import { CITIES } from "@/lib/data";
 import {
   AlertTriangle,
   Camera,
-  Radio,
   Terminal,
   Search,
   Smartphone,
   Menu,
   X,
   RotateCcw,
+  UserRound,
+  Bell,
 } from "lucide-react";
+import Link from "next/link";
+import { useAuthStore } from "@/store/auth-store";
+import { useAlertsStore } from "@/store/alerts-store";
 
 type SuggestPlace = {
   id: string;
@@ -62,6 +66,18 @@ export default function TopBar({
   const setPanel = useSWStore((s) => s.setPanel);
   const focus = useSWStore((s) => s.focus);
   const mapScope = useSWStore((s) => s.mapScope);
+  const user = useAuthStore((s) => s.user);
+  const hydrate = useAuthStore((s) => s.hydrate);
+  const alertUnread = useAlertsStore((s) => s.inbox.filter((a) => !a.read).length);
+  const hydrateAlerts = useAlertsStore((s) => s.hydrate);
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  useEffect(() => {
+    hydrateAlerts(user?.email ?? null);
+  }, [user?.email, hydrateAlerts]);
 
   const [searchQ, setSearchQ] = useState("");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -176,7 +192,7 @@ export default function TopBar({
     }
   };
 
-  const togglePanel = (id: "events" | "feeds" | "terminal") => {
+  const togglePanel = (id: "events" | "feeds" | "terminal" | "places" | "alerts") => {
     setPanel(panel === id ? null : id);
     setMobileMenuOpen(false);
   };
@@ -184,6 +200,11 @@ export default function TopBar({
   const critical = events.filter((e) => e.severity === "critical").length;
 
   const navButtons = [
+    {
+      id: "alerts" as const,
+      icon: <Bell size={14} />,
+      label: alertUnread > 0 ? String(alertUnread) : "",
+    },
     { id: "events" as const, icon: <AlertTriangle size={14} />, label: String(events.length) },
     { id: "feeds" as const, icon: <Camera size={14} />, label: String(cameras.length) },
     { id: "terminal" as const, icon: <Terminal size={14} />, label: "" },
@@ -309,6 +330,21 @@ export default function TopBar({
               {label !== "" && <span>{label}</span>}
             </button>
           ))}
+          {user ? (
+            <button
+              type="button"
+              className={`sw-topbar-nav-btn${panel === "places" ? " is-active" : ""}`}
+              title={`Profile · ${user.email}`}
+              onClick={() => togglePanel("places")}
+            >
+              <UserRound size={14} />
+            </button>
+          ) : (
+            <Link href="/auth" className="sw-topbar-app-link" title="Sign in">
+              <UserRound size={13} />
+              <span>Sign in</span>
+            </Link>
+          )}
           <a href="/download" className="sw-topbar-app-link">
             <Smartphone size={13} />
             <span>App</span>
@@ -355,11 +391,29 @@ export default function TopBar({
                 {id === "terminal"
                   ? "Terminal"
                   : id === "feeds"
-                    ? `Feeds (${label})`
-                    : `Events (${label})`}
+                    ? `Feeds (${label || 0})`
+                    : id === "alerts"
+                      ? `Alerts${label ? ` (${label})` : ""}`
+                      : `Events (${label})`}
               </span>
             </button>
           ))}
+          {user ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={`sw-topbar-mobile-item${panel === "places" ? " is-active" : ""}`}
+              onClick={() => togglePanel("places")}
+            >
+              <UserRound size={14} />
+              <span>Profile · {user.name.split(" ")[0]}</span>
+            </button>
+          ) : (
+            <a href="/auth" className="sw-topbar-mobile-item" role="menuitem">
+              <UserRound size={14} />
+              <span>Sign in</span>
+            </a>
+          )}
           <a href="/download" className="sw-topbar-mobile-item" role="menuitem">
             <Smartphone size={14} />
             <span>Download App</span>

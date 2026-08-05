@@ -5,29 +5,44 @@ function looksLikeApiKey(key: string): boolean {
   return /^[A-Za-z0-9_\-]{20,80}$/.test(key);
 }
 
+/**
+ * Prefer env key. User-entered keys live in sessionStorage only (tab-scoped),
+ * not localStorage, to limit persistence if XSS ever lands.
+ */
 export function getGoogleMapsApiKey(): string | null {
-  if (typeof window !== "undefined") {
-    const stored = window.localStorage.getItem(STORAGE_KEY)?.trim();
-    if (stored && looksLikeApiKey(stored)) return stored;
-  }
   const env = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim();
   if (env && looksLikeApiKey(env)) return env;
+
+  if (typeof window !== "undefined") {
+    const session = window.sessionStorage.getItem(STORAGE_KEY)?.trim();
+    if (session && looksLikeApiKey(session)) return session;
+    // Migrate / clear legacy localStorage copy
+    const legacy = window.localStorage.getItem(STORAGE_KEY)?.trim();
+    if (legacy && looksLikeApiKey(legacy)) {
+      window.sessionStorage.setItem(STORAGE_KEY, legacy);
+      window.localStorage.removeItem(STORAGE_KEY);
+      return legacy;
+    }
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
   return null;
 }
 
 export function setGoogleMapsApiKey(key: string): void {
   const cleaned = key.trim();
   if (typeof window === "undefined") return;
+  window.localStorage.removeItem(STORAGE_KEY);
   if (!cleaned) {
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.sessionStorage.removeItem(STORAGE_KEY);
     return;
   }
   if (!looksLikeApiKey(cleaned)) return;
-  window.localStorage.setItem(STORAGE_KEY, cleaned);
+  window.sessionStorage.setItem(STORAGE_KEY, cleaned);
 }
 
 export function clearGoogleMapsApiKey(): void {
   if (typeof window !== "undefined") {
+    window.sessionStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(STORAGE_KEY);
   }
 }

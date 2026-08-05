@@ -219,20 +219,39 @@ export default function LandingPage() {
         </motion.p>
 
         {/* CTA */}
-        <motion.button
+        <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 2.1, duration: 0.7, ease: "easeOut" }}
-          onClick={enter}
-          className="lp-cta"
-          style={{ pointerEvents: "auto" }}
+          style={{
+            marginTop: 36,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
+            pointerEvents: "auto",
+          }}
         >
-          <span className="lp-cta-dot" />
-          Enter the Watch
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 2 }}>
-            <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </motion.button>
+          <button onClick={enter} className="lp-cta">
+            <span className="lp-cta-dot" />
+            Enter the Watch
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ marginLeft: 2 }}>
+              <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <a
+            href="/auth?mode=signup"
+            style={{
+              fontSize: 12,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "#94a3b8",
+              textDecoration: "none",
+            }}
+          >
+            Sign up for personal places →
+          </a>
+        </motion.div>
 
         {/* Status strip */}
         <motion.div
@@ -252,7 +271,7 @@ export default function LandingPage() {
           }}
         >
           <span className="lp-live" />
-          Global feed online · No account required
+          Global feed online · Guest or signed-in
         </motion.div>
       </div>
     </motion.main>

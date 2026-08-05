@@ -53,7 +53,10 @@ async function loadIntel(lat: number, lng: number, name: string, countryCode?: s
     ...regional,
     ...existing.filter((e) => !seen.has(e.id)),
   ].slice(0, 120);
-  setEvents(merged);
+  setEvents(merged, {
+    fetchedAt: evData?.fetchedAt ?? Date.now(),
+    sources: ["USGS", "NASA EONET", "GDACS", "Wikidata"].filter(Boolean),
+  });
 
   const place: LocationPin = {
     id: "terminal-place",

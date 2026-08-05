@@ -17,6 +17,21 @@ export function isValidLatLng(lat: number, lng: number): boolean {
   );
 }
 
+/** Bounding box for live layers (planes, etc.). */
+export function isValidBBox(
+  lamin: number,
+  lomin: number,
+  lamax: number,
+  lomax: number
+): boolean {
+  if (![lamin, lomin, lamax, lomax].every(Number.isFinite)) return false;
+  if (lamin < -90 || lamax > 90 || lamin >= lamax) return false;
+  if (lomin < -180 || lomax > 180 || lomin >= lomax) return false;
+  // Cap span so anonymous OpenSky / heavy fetches stay bounded
+  if (lamax - lamin > 40 || lomax - lomin > 60) return false;
+  return true;
+}
+
 export function clampRadiusKm(raw: number, fallback: number, max: number): number {
   if (!Number.isFinite(raw) || raw <= 0) return fallback;
   return Math.min(max, Math.max(1, Math.round(raw)));

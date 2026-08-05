@@ -4,6 +4,24 @@ import type { LocationPin, RegionalEvent, PublicCamera, RadioStation } from "@/l
 export type OverlayKey = "temp" | "precip" | "wind" | "none";
 export type ViewMode = "map" | "earth";
 
+/** Multi-select intel layers — independent from climate overlay. */
+export type LiveLayerKey =
+  | "planes"
+  | "combat"
+  | "storms"
+  | "fires"
+  | "quakes"
+  | "space";
+
+export const DEFAULT_LIVE_LAYERS: Record<LiveLayerKey, boolean> = {
+  planes: false,
+  combat: false,
+  storms: false,
+  fires: false,
+  quakes: false,
+  space: false,
+};
+
 export interface HazardReport {
   lat: number;
   lng: number;
@@ -35,7 +53,9 @@ interface SWStore {
 
   events: RegionalEvent[];
   eventsLoading: boolean;
-  setEvents: (e: RegionalEvent[]) => void;
+  eventsFetchedAt: number | null;
+  eventsSources: string[];
+  setEvents: (e: RegionalEvent[], meta?: { fetchedAt?: number; sources?: string[] }) => void;
   setEventsLoading: (v: boolean) => void;
 
   cameras: PublicCamera[];
@@ -52,8 +72,8 @@ interface SWStore {
   selectedEvent: RegionalEvent | null;
   setSelectedEvent: (e: RegionalEvent | null) => void;
 
-  panel: "events" | "feeds" | "terminal" | null;
-  setPanel: (p: "events" | "feeds" | "terminal" | null) => void;
+  panel: "events" | "feeds" | "terminal" | "places" | "alerts" | null;
+  setPanel: (p: "events" | "feeds" | "terminal" | "places" | "alerts" | null) => void;
 
   terminalHistory: TerminalLine[];
   pushTerminal: (l: TerminalLine) => void;
@@ -74,6 +94,10 @@ interface SWStore {
 
   overlay: OverlayKey;
   setOverlay: (o: OverlayKey) => void;
+
+  liveLayers: Record<LiveLayerKey, boolean>;
+  toggleLiveLayer: (key: LiveLayerKey) => void;
+  setLiveLayer: (key: LiveLayerKey, on: boolean) => void;
 
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
@@ -105,7 +129,15 @@ export const useSWStore = create<SWStore>((set) => ({
 
   events: [],
   eventsLoading: false,
-  setEvents: (e) => set({ events: e, eventsLoading: false }),
+  eventsFetchedAt: null,
+  eventsSources: [],
+  setEvents: (e, meta) =>
+    set({
+      events: e,
+      eventsLoading: false,
+      eventsFetchedAt: meta?.fetchedAt ?? Date.now(),
+      eventsSources: meta?.sources ?? [],
+    }),
   setEventsLoading: (v) => set({ eventsLoading: v }),
 
   cameras: [],
@@ -122,7 +154,7 @@ export const useSWStore = create<SWStore>((set) => ({
   selectedEvent: null,
   setSelectedEvent: (e) => set({ selectedEvent: e }),
 
-  panel: "events",
+  panel: "places",
   setPanel: (p) => set({ panel: p }),
 
   terminalHistory: [
@@ -146,6 +178,12 @@ export const useSWStore = create<SWStore>((set) => ({
 
   overlay: "none",
   setOverlay: (o) => set({ overlay: o }),
+
+  liveLayers: { ...DEFAULT_LIVE_LAYERS },
+  toggleLiveLayer: (key) =>
+    set((s) => ({ liveLayers: { ...s.liveLayers, [key]: !s.liveLayers[key] } })),
+  setLiveLayer: (key, on) =>
+    set((s) => ({ liveLayers: { ...s.liveLayers, [key]: on } })),
 
   viewMode: "map",
   setViewMode: (m) => set({ viewMode: m }),

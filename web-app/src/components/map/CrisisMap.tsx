@@ -8,6 +8,7 @@ import {
   Circle,
   Popup,
   Marker,
+  ZoomControl,
   useMap,
   useMapEvents,
 } from "react-leaflet";
@@ -16,6 +17,7 @@ import type { RegionalEvent } from "@/lib/data";
 import { EVENT_COLORS, EVENT_EMOJI, severityColor } from "@/lib/data";
 import { useSWStore } from "@/store/sw-store";
 import ClimateCanvasLayer from "./ClimateCanvasLayer";
+import LiveMapLayers from "./LiveMapLayers";
 import RelativeTime from "@/components/ui/RelativeTime";
 
 function severityRadius(s: RegionalEvent["severity"]) {
@@ -88,6 +90,7 @@ function MapWorldSetup() {
     setupPane(map, "radarPane", 340);
     const climatePane = setupPane(map, "climatePane", 360);
     climatePane.style.pointerEvents = "none";
+    setupPane(map, "intelPane", 380);
 
     const syncFillZoom = (initial = false) => {
       map.invalidateSize();
@@ -242,11 +245,13 @@ export default function CrisisMap() {
       maxBoundsViscosity={1}
       worldCopyJump={false}
       style={{ height: "100%", width: "100%", background: "#0a0e14" }}
-      zoomControl={true}
+      zoomControl={false}
       attributionControl={true}
       scrollWheelZoom={true}
       touchZoom={true}
     >
+      {/* Bottom-left so it never sits under the Crisis Map dropdown (top-left) */}
+      <ZoomControl position="bottomleft" />
       <TileLayer
         url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
         attribution='&copy; <a href="https://carto.com">CARTO</a>'
@@ -271,6 +276,7 @@ export default function CrisisMap() {
       <MapWorldSetup />
       <MapController />
       <ClimateCanvasLayer />
+      <LiveMapLayers />
       <MapClickHazards />
 
       {/* Crisis area halos — overlap zones matching severity */}
