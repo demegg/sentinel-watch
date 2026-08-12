@@ -118,12 +118,11 @@ export default function LandingPage() {
           <LogoMark size={64} />
         </motion.div>
 
-        {/* Title — letter by letter, words stay unbroken (wrap as whole words) */}
+        {/* Title — crawlable immediately; motion is polish only */}
         <motion.h1
           className="lp-title"
-          initial="hidden"
-          animate="show"
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.055, delayChildren: 0.75 } } }}
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 1 }}
           style={{
             margin: 0,
             fontSize: "clamp(1.9rem, 8vw, 5rem)",
@@ -135,39 +134,33 @@ export default function LandingPage() {
             justifyContent: "center",
             columnGap: "0.28em",
             rowGap: "0.12em",
+            color: "#f1f5f9",
             filter: "drop-shadow(0 0 34px rgba(239,68,68,0.28))",
           }}
         >
-          {(() => {
-            let n = 0;
-            return TITLE.split(" ").map((word, wi) => (
-              <span key={wi} style={{ display: "inline-flex", whiteSpace: "nowrap" }}>
-                {word.split("").map((ch) => {
-                  const delay = 0.75 + n++ * 0.055;
-                  return (
-                    <motion.span
-                      key={delay}
-                      variants={{
-                        hidden: { opacity: 0, y: 24, filter: "blur(8px)" },
-                        show: { opacity: 1, y: 0, filter: "blur(0px)" },
-                      }}
-                      transition={{ duration: 0.5, delay, ease: [0.16, 1, 0.3, 1] }}
-                      style={{
-                        display: "inline-block",
-                        background: "linear-gradient(180deg, #ffffff 0%, #e2e8f0 45%, #94a3b8 100%)",
-                        WebkitBackgroundClip: "text",
-                        backgroundClip: "text",
-                        WebkitTextFillColor: "transparent",
-                        color: "transparent",
-                      }}
-                    >
-                      {ch}
-                    </motion.span>
-                  );
-                })}
-              </span>
-            ));
-          })()}
+          {TITLE.split(" ").map((word, wi) => (
+            <span key={wi} style={{ display: "inline-flex", whiteSpace: "nowrap" }}>
+              {word.split("").map((ch, ci) => (
+                <motion.span
+                  key={`${wi}-${ci}`}
+                  initial={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  transition={{ duration: 0.45, delay: 0.35 + (wi * 8 + ci) * 0.04, ease: [0.16, 1, 0.3, 1] }}
+                  style={{
+                    display: "inline-block",
+                    background: "linear-gradient(180deg, #ffffff 0%, #e2e8f0 45%, #94a3b8 100%)",
+                    WebkitBackgroundClip: "text",
+                    backgroundClip: "text",
+                    // Keep a real color for crawlers / readers that ignore clip
+                    color: "#f1f5f9",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  {ch}
+                </motion.span>
+              ))}
+            </span>
+          ))}
         </motion.h1>
 
         {/* Accent divider */}
@@ -203,9 +196,9 @@ export default function LandingPage() {
         {/* Tagline */}
         <motion.p
           className="lp-tagline"
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 1, y: 0 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.7, duration: 0.9, ease: "easeOut" }}
+          transition={{ delay: 0.2, duration: 0.6, ease: "easeOut" }}
           style={{
             margin: 0,
             fontSize: "clamp(0.85rem, 2.2vw, 1.15rem)",
@@ -217,6 +210,11 @@ export default function LandingPage() {
         >
           Eyes everywhere. Always watching.
         </motion.p>
+
+        <p className="lp-seo-blurb">
+          Sentinel Watch monitors earthquakes, wildfires, storms, conflicts, live cams, and aircraft
+          in real time on one global map.
+        </p>
 
         {/* CTA */}
         <motion.div

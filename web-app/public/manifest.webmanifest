@@ -1,7 +1,7 @@
 {
-  "name": "Sentinel Watch Beta",
-  "short_name": "Sentinel",
-  "description": "Beta — real-time global crisis monitoring: earthquakes, wildfires, live cams, and radio.",
+  "name": "Sentinel Watch",
+  "short_name": "Sentinel Watch",
+  "description": "Real-time global crisis monitoring — earthquakes, wildfires, storms, conflicts, live cams, and aircraft.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0e14",

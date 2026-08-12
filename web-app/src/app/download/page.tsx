@@ -2,8 +2,11 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Download SentinelWatch Mobile",
-  description: "Download the SentinelWatch app for Android.",
+  title: "Download",
+  description:
+    "Download the Sentinel Watch Android app — real-time global crisis monitoring on mobile.",
+  alternates: { canonical: "/download" },
+  robots: { index: true, follow: true },
 };
 
 export default function DownloadPage() {

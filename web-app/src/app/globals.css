@@ -283,11 +283,21 @@ body:has(.sw-auth-page) {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 0 20px;
+  padding: 0 20px 110px;
   pointer-events: none;
   max-width: 100%;
 }
 .lp-cta { margin-top: 40px; }
+.lp-seo-blurb {
+  margin: 14px 0 0;
+  max-width: 36rem;
+  font-size: clamp(0.78rem, 1.8vw, 0.95rem);
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+  color: rgba(148, 163, 184, 0.92);
+  text-transform: none;
+  font-weight: 400;
+}
 .lp-status {
   margin-top: 34px;
   display: flex;
@@ -297,6 +307,46 @@ body:has(.sw-auth-page) {
   flex-wrap: wrap;
   max-width: 100%;
   text-align: center;
+}
+
+/* Server-rendered indexable summary — visible, not cloaked */
+.sw-seo-crawl {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  padding: 12px 18px calc(16px + env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, transparent 0%, rgba(6, 8, 16, 0.88) 35%, rgba(6, 8, 16, 0.96) 100%);
+  color: #94a3b8;
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.sw-seo-crawl p {
+  margin: 0 0 6px;
+  max-width: 920px;
+}
+.sw-seo-crawl strong {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+.sw-seo-crawl ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.25rem;
+  max-width: 960px;
+}
+.sw-seo-crawl li { margin: 0; }
+
+@media (max-width: 720px) {
+  .sw-seo-crawl {
+    font-size: 10px;
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .sw-seo-crawl ul { display: block; }
 }
 
 /* ============ App shell (map HUD) ============ */

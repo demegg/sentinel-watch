@@ -1,8 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /api/
-Disallow: /auth
-Disallow: /onboarding
-Disallow: /app
-
-Sitemap: https://sentinel-watch-gamma.vercel.app/
