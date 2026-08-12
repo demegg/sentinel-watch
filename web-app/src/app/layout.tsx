@@ -56,6 +56,9 @@ export const metadata: Metadata = {
     apple: [{ url: "/icon.svg" }],
   },
   manifest: "/manifest.webmanifest",
+  verification: {
+    google: "MGhnKeRraG1PJ54uZJI07AbCfXjU-v_0QY8itPHMIQU",
+  },
 };
 
 export const viewport: Viewport = {
