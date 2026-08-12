@@ -4,13 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { Camera, Radio, X, Play, Square, ExternalLink } from "lucide-react";
 import type { PublicCamera, RadioStation } from "@/lib/data";
-import { safeHttpUrl, isSafeYoutubeId } from "@/lib/security";
+import { safeHttpUrl, isSafeYoutubeId, isSafeDailymotionEmbed, safeThumbnailUrl } from "@/lib/security";
 import { useSWStore } from "@/store/sw-store";
 import LoadingState from "@/components/ui/LoadingState";
 
 function safeCamUrl(cam: PublicCamera): string | null {
   if (cam.kind === "youtube") {
     return isSafeYoutubeId(cam.streamUrl) ? cam.streamUrl : null;
+  }
+  if (cam.kind === "dailymotion") {
+    return isSafeDailymotionEmbed(cam.streamUrl) ? cam.streamUrl : null;
   }
   return safeHttpUrl(cam.streamUrl, {
     allowHttp: cam.kind === "hls" || cam.kind === "image",
@@ -20,8 +23,10 @@ function safeCamUrl(cam: PublicCamera): string | null {
 /* ─── Camera Row ─────────────────────────────────────── */
 function CameraRow({ cam, onWatch }: { cam: PublicCamera; onWatch: () => void }) {
   const thumb =
-    cam.thumbnail ??
-    (cam.kind === "youtube" ? `https://i.ytimg.com/vi/${cam.streamUrl}/hqdefault.jpg` : null);
+    safeThumbnailUrl(cam.thumbnail) ??
+    (cam.kind === "youtube" && isSafeYoutubeId(cam.streamUrl)
+      ? `https://i.ytimg.com/vi/${cam.streamUrl}/hqdefault.jpg`
+      : null);
 
   return (
     <div

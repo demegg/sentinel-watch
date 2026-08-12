@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { LocationPin, RegionalEvent, PublicCamera, RadioStation } from "@/lib/data";
+import type { PlaneState, AircraftTrackPoint } from "@/lib/aircraft";
 
 export type OverlayKey = "temp" | "precip" | "wind" | "none";
-export type ViewMode = "map" | "earth";
 
 /** Multi-select intel layers — independent from climate overlay. */
 export type LiveLayerKey =
@@ -99,10 +99,13 @@ interface SWStore {
   toggleLiveLayer: (key: LiveLayerKey) => void;
   setLiveLayer: (key: LiveLayerKey, on: boolean) => void;
 
-  viewMode: ViewMode;
-  setViewMode: (m: ViewMode) => void;
-  earthZoom: number;
-  setEarthZoom: (z: number) => void;
+  aircraft: PlaneState[];
+  aircraftFetchedAt: number | null;
+  aircraftError: string | null;
+  selectedAircraftId: string | null;
+  aircraftTrails: Record<string, AircraftTrackPoint[]>;
+  setAircraft: (planes: PlaneState[], fetchedAt?: number, error?: string | null) => void;
+  selectAircraft: (id: string | null) => void;
 
   climatePoints: {
     lat: number;
@@ -185,10 +188,32 @@ export const useSWStore = create<SWStore>((set) => ({
   setLiveLayer: (key, on) =>
     set((s) => ({ liveLayers: { ...s.liveLayers, [key]: on } })),
 
-  viewMode: "map",
-  setViewMode: (m) => set({ viewMode: m }),
-  earthZoom: 12,
-  setEarthZoom: (z) => set({ earthZoom: Math.min(21, Math.max(3, z)) }),
+  aircraft: [],
+  aircraftFetchedAt: null,
+  aircraftError: null,
+  selectedAircraftId: null,
+  aircraftTrails: {},
+  setAircraft: (planes, fetchedAt = Date.now(), error = null) =>
+    set((s) => {
+      const trails = { ...s.aircraftTrails };
+      for (const plane of planes) {
+        const previous = trails[plane.id] ?? [];
+        const last = previous[previous.length - 1];
+        const moved = !last || Math.abs(last.lat - plane.lat) > 0.002 || Math.abs(last.lng - plane.lng) > 0.002;
+        if (moved) {
+          trails[plane.id] = [
+            ...previous.slice(-11),
+            { lat: plane.lat, lng: plane.lng, timestamp: fetchedAt },
+          ];
+        }
+      }
+      const visibleIds = new Set(planes.map((p) => p.id));
+      for (const id of Object.keys(trails)) {
+        if (!visibleIds.has(id) && id !== s.selectedAircraftId) delete trails[id];
+      }
+      return { aircraft: planes, aircraftFetchedAt: fetchedAt, aircraftError: error, aircraftTrails: trails };
+    }),
+  selectAircraft: (id) => set({ selectedAircraftId: id }),
 
   climatePoints: [],
   setClimatePoints: (p) => set({ climatePoints: p }),

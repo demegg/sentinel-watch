@@ -6,6 +6,7 @@ import type { LocationPin } from "@/lib/data";
 import { loadRegionalFeeds } from "@/lib/load-feeds";
 import { useSWStore } from "@/store/sw-store";
 import LoadingState from "@/components/ui/LoadingState";
+import { aircraftMatches, normalizeAircraftQuery, type PlaneState } from "@/lib/aircraft";
 
 async function typeOut(
   text: string,
@@ -120,8 +121,7 @@ export default function CommandTerminal() {
           "  time <place>    — local time",
           "  events          — show loaded events",
           "  cams / radio    — open feeds panel",
-          "  earth           — 3D Google Earth view",
-          "  map             — Sentinel Watch map view",
+          "  flight <id>     — find callsign or ICAO24 in SkyTrace",
           "  clear           — clear terminal",
         ].join("\n");
 
@@ -173,15 +173,46 @@ export default function CommandTerminal() {
         setPanel("feeds");
         return `Opening feeds panel · ${useSWStore.getState().radios.length} radio stations`;
 
-      case "earth":
-        useSWStore.getState().setViewMode("earth");
-        return "Switched to 3D Google Earth view";
-
-      case "map":
-      case "crisis":
-      case "sentinel":
-        useSWStore.getState().setViewMode("map");
-        return "Switched to Sentinel Watch map view";
+      case "flight":
+      case "aircraft":
+      case "plane": {
+        if (!arg) return "Usage: flight <callsign or 6-character ICAO24>";
+        const query = normalizeAircraftQuery(arg);
+        const store = useSWStore.getState();
+        store.setLiveLayer("planes", true);
+        let plane = store.aircraft.find((item) => aircraftMatches(item, query)) ?? null;
+        if (!plane) {
+          const params = new URLSearchParams();
+          if (/^[0-9A-F]{6}$/.test(query)) {
+            params.set("q", query);
+          } else {
+            const pad = 18;
+            const [lat, lng] = store.mapCenter;
+            params.set("lamin", String(Math.max(-85, lat - pad)));
+            params.set("lomin", String(Math.max(-180, lng - pad)));
+            params.set("lamax", String(Math.min(85, lat + pad)));
+            params.set("lomax", String(Math.min(180, lng + pad)));
+            params.set("q", query);
+          }
+          const response = await fetch(`/api/planes?${params.toString()}`);
+          const data = await response.json();
+          const matches = (data.planes ?? []) as PlaneState[];
+          plane = matches.find((item) => aircraftMatches(item, query)) ?? matches[0] ?? null;
+          if (plane) {
+            store.setAircraft(
+              [plane, ...store.aircraft.filter((item) => item.id !== plane?.id)],
+              data.fetchedAt ?? Date.now(),
+              null
+            );
+          }
+        }
+        if (!plane) {
+          return "No aircraft match nearby. Zoom toward the corridor, or use a 6-character ICAO24 id.";
+        }
+        store.selectAircraft(plane.id);
+        store.setMapView([plane.lat, plane.lng], 10);
+        return `${plane.callsign} · ${plane.id.toUpperCase()} · ${plane.altitudeFt?.toLocaleString() ?? "—"} ft · ${plane.velocityKts ?? "—"} kts · SkyTrace locked`;
+      }
 
       case "clear":
         return "__CLEAR__";

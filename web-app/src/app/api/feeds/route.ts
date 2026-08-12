@@ -8,6 +8,9 @@ import {
   sanitizeQuery,
   safeHttpUrl,
   isSafeYoutubeId,
+  isSafeCountryCode,
+  isSafeDailymotionEmbed,
+  safeThumbnailUrl,
   MAX_FEED_RADIUS_KM,
 } from "@/lib/security";
 
@@ -78,10 +81,10 @@ async function fetchRadios(
     });
   };
 
-  if (countryCode) {
+  if (countryCode && isSafeCountryCode(countryCode)) {
     try {
       const r = await fetch(
-        `${base}/json/stations/search?countrycode=${countryCode}&hidebroken=true&limit=40&order=clickcount&reverse=true`,
+        `${base}/json/stations/search?countrycode=${encodeURIComponent(countryCode)}&hidebroken=true&limit=40&order=clickcount&reverse=true`,
         { headers, signal: AbortSignal.timeout(10000), cache: "no-store" }
       );
       if (r.ok) (await r.json() as RbStation[]).forEach((s, i) => pushStation(s, i));
@@ -124,7 +127,8 @@ export async function GET(req: NextRequest) {
   const lng = Number(sp.get("lng"));
   const city = sanitizeQuery(sp.get("city")) || "City";
   const country = sanitizeQuery(sp.get("country")) || undefined;
-  const countryCode = sanitizeQuery(sp.get("countryCode"), 8).toUpperCase() || undefined;
+  const rawCode = sanitizeQuery(sp.get("countryCode"), 8).toUpperCase();
+  const countryCode = isSafeCountryCode(rawCode) ? rawCode : undefined;
   const radiusKm = Math.max(15, clampRadiusKm(Number(sp.get("radius")) || 55, 55, MAX_FEED_RADIUS_KM));
   if (!isValidLatLng(lat, lng)) {
     return NextResponse.json({ error: "Valid lat/lng required" }, { status: 400 });
@@ -135,13 +139,26 @@ export async function GET(req: NextRequest) {
     fetchRadios(city, country, countryCode, lat, lng),
   ]);
 
-  const safeCams = cameras.filter((cam) => {
-    if (cam.kind === "youtube") return isSafeYoutubeId(cam.streamUrl);
-    return Boolean(
-      safeHttpUrl(cam.streamUrl, { allowHttp: cam.kind === "hls" || cam.kind === "image" })
-    );
-  });
-  const safeRadios = radios.filter((r) => Boolean(safeHttpUrl(r.streamUrl, { allowHttp: true })));
+  const safeCams = cameras
+    .filter((cam) => {
+      if (cam.kind === "youtube") return isSafeYoutubeId(cam.streamUrl);
+      if (cam.kind === "dailymotion") return isSafeDailymotionEmbed(cam.streamUrl);
+      return Boolean(
+        safeHttpUrl(cam.streamUrl, { allowHttp: cam.kind === "hls" || cam.kind === "image" })
+      );
+    })
+    .map((cam) => ({
+      ...cam,
+      thumbnail: safeThumbnailUrl(cam.thumbnail) ?? undefined,
+    }));
+  const safeRadios = radios
+    .filter((r) => Boolean(safeHttpUrl(r.streamUrl, { allowHttp: true })))
+    .map((r) => ({
+      ...r,
+      streamUrl: safeHttpUrl(r.streamUrl, { allowHttp: true })!,
+      homepage: safeHttpUrl(r.homepage) ?? undefined,
+      favicon: safeThumbnailUrl(r.favicon) ?? safeHttpUrl(r.favicon) ?? undefined,
+    }));
 
   return NextResponse.json({
     city: toEnglishLabel(city),

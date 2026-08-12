@@ -1,22 +1,22 @@
 import type { Metadata } from "next";
 import RegionClient from "./RegionClient";
+import { isValidLatLng } from "@/lib/security";
 
 type Props = { searchParams: Promise<{ lat?: string; lng?: string }> };
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const sp = await searchParams;
-  const lat = sp.lat ?? "";
-  const lng = sp.lng ?? "";
-  const title =
-    lat && lng
-      ? `Region report · ${lat}, ${lng} · SentinelWatch`
-      : "Region report · SentinelWatch";
+  const lat = Number(sp.lat);
+  const lng = Number(sp.lng);
+  const valid = isValidLatLng(lat, lng);
+  const title = valid
+    ? `Region report · ${lat.toFixed(2)}, ${lng.toFixed(2)} · SentinelWatch`
+    : "Region report · SentinelWatch";
   const description =
     "Tourist safety brief with risk score, advisories, political news, and live nearby events.";
-  const url =
-    lat && lng
-      ? `https://sentinel-watch-gamma.vercel.app/region?lat=${lat}&lng=${lng}`
-      : "https://sentinel-watch-gamma.vercel.app/region";
+  const url = valid
+    ? `https://sentinel-watch-gamma.vercel.app/region?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
+    : "https://sentinel-watch-gamma.vercel.app/region";
 
   return {
     title,

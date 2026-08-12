@@ -1,6 +1,12 @@
 import { haversineKm } from "@/lib/data";
 import type { PublicCamera } from "@/lib/data";
 import { lookupCuratedCams } from "@/lib/city-cams";
+import {
+  hostnameEquals,
+  isSafeDailymotionEmbed,
+  isSafeYoutubeId,
+  safeThumbnailUrl,
+} from "@/lib/security";
 
 const PIPED_BASES = [
   "https://api.piped.private.coffee",
@@ -75,9 +81,17 @@ export function offsetAround(lat: number, lng: number, index: number, total: num
 }
 
 function classifyStream(url: string): PublicCamera["kind"] {
+  if (isSafeYoutubeId(url)) return "youtube";
+  if (
+    hostnameEquals(url, ["youtube.com", "youtube-nocookie.com", "youtu.be"]) ||
+    Boolean(extractYoutubeId(url))
+  ) {
+    return "youtube";
+  }
+  if (isSafeDailymotionEmbed(url) || hostnameEquals(url, ["dailymotion.com"])) {
+    return isSafeDailymotionEmbed(url) ? "dailymotion" : "page";
+  }
   const u = url.toLowerCase();
-  if (u.includes("youtube.com") || u.includes("youtu.be") || /^[\w-]{11}$/.test(url)) return "youtube";
-  if (u.includes("dailymotion.com")) return "dailymotion";
   if (u.includes(".m3u8")) return "hls";
   if (/\.(jpg|jpeg|png|gif|webp)(\?|$)/i.test(u) || /\/mjpe?g/i.test(u)) return "image";
   return "page";
@@ -402,7 +416,7 @@ async function fetchWindyCameras(lat: number, lng: number, radiusKm: number): Pr
           streamUrl: embed,
           kind: "page",
           distanceKm: Math.round(haversineKm(lat, lng, cLat, cLng) * 10) / 10,
-          thumbnail: thumb,
+          thumbnail: safeThumbnailUrl(thumb) ?? undefined,
         });
       })
       .filter((c): c is PublicCamera => c != null);
@@ -428,7 +442,7 @@ async function fetchDailymotionLive(city: string, country?: string): Promise<Pub
     }>;
 
     return list
-      .filter((v) => v.live_status === "onair" && v.embed_url && titleMatchesRegion(v.title ?? "", city, country))
+      .filter((v) => v.live_status === "onair" && v.id && titleMatchesRegion(v.title ?? "", city, country))
       .map((v, i) =>
         liveCameraBase({
           id: `dm-${v.id}`,
@@ -437,11 +451,14 @@ async function fetchDailymotionLive(city: string, country?: string): Promise<Pub
           lng: 0,
           exact: false,
           source: "dailymotion",
-          streamUrl: v.embed_url!,
+          streamUrl: isSafeDailymotionEmbed(v.embed_url)
+            ? v.embed_url!
+            : `https://www.dailymotion.com/embed/video/${encodeURIComponent(v.id)}`,
           kind: "dailymotion",
           distanceKm: i,
         })
-      );
+      )
+      .filter((cam) => isSafeDailymotionEmbed(cam.streamUrl));
   } catch {
     return [];
   }
@@ -469,7 +486,14 @@ function collectYoutubeCandidates(
       if (/live @|dj set|groovejet|festival set|club night/i.test(title) && !/square|webcam|skyline|camera/i.test(title)) {
         continue;
       }
-      if (!candidates.has(id)) candidates.set(id, { id, title, thumbnail: item.thumbnail, pipedLive: true });
+      if (!candidates.has(id)) {
+        candidates.set(id, {
+          id,
+          title,
+          thumbnail: safeThumbnailUrl(item.thumbnail) ?? undefined,
+          pipedLive: true,
+        });
+      }
       continue;
     }
 
@@ -570,7 +594,7 @@ export async function discoverLiveCameras(
         streamUrl: id,
         kind: "youtube",
         distanceKm: Math.round(haversineKm(lat, lng, cLat, cLng) * 10) / 10,
-        thumbnail: meta.thumbnail ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+        thumbnail: safeThumbnailUrl(meta.thumbnail) ?? `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
         liveVerified: true,
       })
     );

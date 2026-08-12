@@ -20,9 +20,6 @@ const nextConfig = {
       { protocol: "https", hostname: "**.dmcdn.net" },
       { protocol: "https", hostname: "**.basemaps.cartocdn.com" },
       { protocol: "https", hostname: "tile.openstreetmap.org" },
-      { protocol: "https", hostname: "**.googleusercontent.com" },
-      { protocol: "https", hostname: "**.gstatic.com" },
-      { protocol: "https", hostname: "**.googleapis.com" },
     ],
   },
   async headers() {

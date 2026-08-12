@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import ConflictClient from "./ConflictClient";
+import { sanitizeDisplayTitle } from "@/lib/security";
 
 type Props = { searchParams: Promise<{ title?: string; id?: string }> };
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const sp = await searchParams;
-  const name = sp.title || sp.id || "Conflict zone";
-  const title = `Conflict report · ${name} · SentinelWatch`;
+  // Never trust free-form title for phishing OG previews — use opaque id only.
+  const label = sanitizeDisplayTitle(sp.id, 40) || "Conflict zone";
+  const title = `Conflict report · ${label} · SentinelWatch`;
   const description =
     "Conflict situational brief with risk score, guidance, and political news.";
 

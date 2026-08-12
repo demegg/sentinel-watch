@@ -1,23 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Circle, CircleMarker, Marker, Popup, useMap, useMapEvents } from "react-leaflet";
+import { Circle, CircleMarker, Marker, Polyline, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useSWStore } from "@/store/sw-store";
-import type { RegionalEvent } from "@/lib/data";
+import { haversineKm, type RegionalEvent } from "@/lib/data";
+import { projectCourse, type PlaneState } from "@/lib/aircraft";
 import RelativeTime from "@/components/ui/RelativeTime";
-
-type PlaneState = {
-  id: string;
-  callsign: string;
-  lat: number;
-  lng: number;
-  altitudeFt: number | null;
-  velocityKts: number | null;
-  heading: number | null;
-  onGround: boolean;
-  originCountry: string;
-};
 
 type CombatZone = {
   id: string;
@@ -39,22 +28,22 @@ type SpaceSnap = {
 
 const planeIconCache = new Map<string, L.DivIcon>();
 
-function getPlaneIcon(heading: number | null, onGround: boolean) {
+function getPlaneIcon(heading: number | null, onGround: boolean, selected = false) {
   const bucket = Math.round(((heading ?? 0) % 360) / 20) * 20;
-  const key = `${bucket}-${onGround ? "g" : "a"}`;
+  const key = `${bucket}-${onGround ? "g" : "a"}-${selected ? "s" : "n"}`;
   const cached = planeIconCache.get(key);
   if (cached) return cached;
 
-  const color = onGround ? "#94a3b8" : "#22d3ee";
+  const color = selected ? "#fbbf24" : onGround ? "#94a3b8" : "#22d3ee";
   const icon = L.divIcon({
-    className: "sw-plane-icon",
+    className: `sw-plane-icon${selected ? " is-selected" : ""}`,
     html: `<div class="sw-plane-rot" style="--hdg:${bucket}deg;--pc:${color}">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path fill="currentColor" d="M12 2.2l2.2 7.2H22l-6 4.2 2.2 7.2L12 16.8 5.8 20.8 8 13.6 2 9.4h7.8L12 2.2z"/>
+      <svg viewBox="0 0 24 24" width="${selected ? 22 : 17}" height="${selected ? 22 : 17}" aria-hidden="true">
+        <path fill="currentColor" d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16Z"/>
       </svg>
     </div>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    iconSize: selected ? [28, 28] : [20, 20],
+    iconAnchor: selected ? [14, 14] : [10, 10],
   });
   planeIconCache.set(key, icon);
   return icon;
@@ -112,8 +101,12 @@ export default function LiveMapLayers() {
   const map = useMap();
   const liveLayers = useSWStore((s) => s.liveLayers);
   const events = useSWStore((s) => s.events);
+  const planes = useSWStore((s) => s.aircraft);
+  const setAircraft = useSWStore((s) => s.setAircraft);
+  const selectedAircraftId = useSWStore((s) => s.selectedAircraftId);
+  const selectAircraft = useSWStore((s) => s.selectAircraft);
+  const aircraftTrails = useSWStore((s) => s.aircraftTrails);
 
-  const [planes, setPlanes] = useState<PlaneState[]>([]);
   const [storms, setStorms] = useState<RegionalEvent[]>([]);
   const [fires, setFires] = useState<RegionalEvent[]>([]);
   const [combat, setCombat] = useState<CombatZone[]>([]);
@@ -164,11 +157,12 @@ export default function LiveMapLayers() {
 
   useEffect(() => {
     if (!liveLayers.planes) {
-      setPlanes([]);
+      setAircraft([], Date.now(), null);
+      selectAircraft(null);
       return;
     }
     if (zoom < 4) {
-      setPlanes([]);
+      setAircraft([], Date.now(), "Zoom in to level 4 or closer to scan local airspace.");
       return;
     }
     let cancelled = false;
@@ -181,22 +175,22 @@ export default function LiveMapLayers() {
         const data = await res.json();
         if (cancelled) return;
         if (data.error) {
-          setPlanes([]);
+          setAircraft([], Date.now(), data.error);
           return;
         }
         const list: PlaneState[] = (data.planes ?? [])
           .filter((p: PlaneState) => !p.onGround)
           .slice(0, zoom < 6 ? 60 : 120);
-        setPlanes(list);
+        setAircraft(list, data.fetchedAt ?? Date.now(), null);
       } catch {
-        if (!cancelled) setPlanes([]);
+        if (!cancelled) setAircraft([], Date.now(), "Aircraft feed unavailable.");
       }
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [liveLayers.planes, tick, map, zoom]);
+  }, [liveLayers.planes, tick, map, zoom, setAircraft, selectAircraft]);
 
   useEffect(() => {
     if (!liveLayers.storms) {
@@ -292,6 +286,37 @@ export default function LiveMapLayers() {
         : [],
     [liveLayers.quakes, events]
   );
+
+  const selectedAircraft = useMemo(
+    () => planes.find((plane) => plane.id === selectedAircraftId) ?? null,
+    [planes, selectedAircraftId]
+  );
+
+  const selectedThreat = useMemo(() => {
+    if (!selectedAircraft || !events.length) return null;
+    let nearest: { event: RegionalEvent; distanceKm: number } | null = null;
+    for (const event of events) {
+      const distanceKm = haversineKm(selectedAircraft.lat, selectedAircraft.lng, event.lat, event.lng);
+      if (!nearest || distanceKm < nearest.distanceKm) nearest = { event, distanceKm };
+    }
+    return nearest && nearest.distanceKm <= 500 ? nearest : null;
+  }, [selectedAircraft, events]);
+
+  const selectedTrail = selectedAircraftId ? aircraftTrails[selectedAircraftId] ?? [] : [];
+
+  const ghostCourse = useMemo(() => {
+    if (!selectedAircraft || selectedAircraft.heading == null || selectedAircraft.onGround) return null;
+    const tip = projectCourse(
+      selectedAircraft.lat,
+      selectedAircraft.lng,
+      selectedAircraft.heading,
+      Math.max(40, Math.min(220, (selectedAircraft.velocityKts ?? 400) * 0.35))
+    );
+    return [
+      [selectedAircraft.lat, selectedAircraft.lng] as [number, number],
+      [tip.lat, tip.lng] as [number, number],
+    ];
+  }, [selectedAircraft]);
 
   return (
     <>
@@ -464,14 +489,18 @@ export default function LiveMapLayers() {
           <Marker
             key={p.id}
             position={[p.lat, p.lng]}
-            icon={getPlaneIcon(p.heading, p.onGround)}
-            zIndexOffset={650}
+            icon={getPlaneIcon(p.heading, p.onGround, p.id === selectedAircraftId)}
+            zIndexOffset={p.id === selectedAircraftId ? 900 : 650}
+            eventHandlers={{ click: () => selectAircraft(p.id) }}
           >
             <Popup>
               <div style={{ fontFamily: "system-ui", minWidth: 170 }}>
-                <div style={{ fontWeight: 700, color: "#0891b2" }}>✈ {p.callsign}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#0891b2", letterSpacing: "0.12em" }}>
+                  AIRCRAFT
+                </div>
+                <div style={{ fontWeight: 700, marginTop: 3 }}>{p.callsign}</div>
                 <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>
-                  {p.originCountry || "—"} · airborne
+                  {p.id.toUpperCase()} · {p.originCountry || "Origin unknown"}
                 </div>
                 <div style={{ fontSize: 11, color: "#64748b", marginTop: 4 }}>
                   {p.altitudeFt != null ? `${p.altitudeFt.toLocaleString()} ft` : "alt —"}
@@ -483,6 +512,49 @@ export default function LiveMapLayers() {
             </Popup>
           </Marker>
         ))}
+
+      {liveLayers.planes && selectedAircraft && selectedTrail.length > 1 && (
+        <Polyline
+          positions={selectedTrail.map((point) => [point.lat, point.lng] as [number, number])}
+          pathOptions={{ color: "#fbbf24", weight: 3, opacity: 0.9, dashArray: "8 7" }}
+        />
+      )}
+
+      {liveLayers.planes && selectedAircraft && (
+        <Circle
+          center={[selectedAircraft.lat, selectedAircraft.lng]}
+          radius={25_000}
+          pathOptions={{
+            color: "#fbbf24",
+            fillColor: "#fbbf24",
+            fillOpacity: 0.06,
+            weight: 1.5,
+            dashArray: "4 5",
+          }}
+        />
+      )}
+
+      {liveLayers.planes && ghostCourse && (
+        <Polyline
+          positions={ghostCourse}
+          pathOptions={{ color: "#67e8f9", weight: 2, opacity: 0.55, dashArray: "2 10" }}
+        />
+      )}
+
+      {liveLayers.planes && selectedAircraft && selectedThreat && (
+        <Polyline
+          positions={[
+            [selectedAircraft.lat, selectedAircraft.lng],
+            [selectedThreat.event.lat, selectedThreat.event.lng],
+          ]}
+          pathOptions={{
+            color: selectedThreat.distanceKm < 120 ? "#ef4444" : "#f97316",
+            weight: 2,
+            opacity: 0.75,
+            dashArray: "5 8",
+          }}
+        />
+      )}
 
       {liveLayers.space && space?.auroraLikely && (
         <>

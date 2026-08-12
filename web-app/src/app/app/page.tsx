@@ -11,15 +11,14 @@ import { loadRegionalFeeds } from "@/lib/load-feeds";
 import Sidebar from "@/components/hud/Sidebar";
 import TopBar from "@/components/hud/TopBar";
 import OverlayControls from "@/components/hud/OverlayControls";
-import ViewModeControls from "@/components/hud/ViewModeControls";
 import MiniRadar from "@/components/hud/MiniRadar";
+import AircraftFinder from "@/components/hud/AircraftFinder";
 import HazardPopup from "@/components/hud/HazardPopup";
 import AlertsWatcher from "@/components/hud/AlertsWatcher";
 import CommandTerminal from "@/components/terminal/CommandTerminal";
 import { CameraViewer, RadioPlayer } from "@/components/feeds/LocalFeeds";
 
 const MapLoader = dynamic(() => import("@/components/map/MapLoader"), { ssr: false });
-const GoogleEarthView = dynamic(() => import("@/components/earth/GoogleEarthView"), { ssr: false });
 
 function mergeEvents(primary: RegionalEvent[], secondary: RegionalEvent[], cap = 120) {
   const seen = new Set<string>();
@@ -189,7 +188,6 @@ export default function AppView() {
   const [sessionReady, setSessionReady] = useState(false);
   const hazard = useSWStore((s) => s.hazard);
   const hazardLoading = useSWStore((s) => s.hazardLoading);
-  const viewMode = useSWStore((s) => s.viewMode);
   const hydrateAuth = useAuthStore((s) => s.hydrate);
   const authUser = useAuthStore((s) => s.user);
   const places = useAuthStore((s) => s.places);
@@ -261,8 +259,7 @@ export default function AppView() {
       className="sw-app-shell sw-app-enter"
       style={{ position: "fixed", inset: 0, width: "100%", height: "100dvh", overflow: "hidden" }}
     >
-      {viewMode === "map" && <MapLoader />}
-      {viewMode === "earth" && <GoogleEarthView />}
+      <MapLoader />
 
       <div
         style={{
@@ -274,9 +271,9 @@ export default function AppView() {
       >
         <TopBar onSearch={handleSearch} onResetWorld={handleResetWorld} />
         <Sidebar />
-        <ViewModeControls />
-        {viewMode === "map" && <OverlayControls />}
-        {viewMode === "map" && <MiniRadar />}
+        <OverlayControls />
+        <AircraftFinder />
+        <MiniRadar />
         <HazardPopup />
 
         {!hazard && !hazardLoading && (

@@ -79,6 +79,10 @@ function AuthForm() {
           </div>
         </div>
 
+        <p className="sw-auth-local-note">
+          Profiles stay on this device — encrypted locally, never sent to a server.
+        </p>
+
         <div className="sw-auth-tabs" role="tablist">
           <button
             type="button"

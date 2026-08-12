@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isValidBBox, safeClientError } from "@/lib/security";
+import { isValidBBox, safeClientError, sanitizeQuery } from "@/lib/security";
 import { fetchUpstream } from "@/lib/net";
+import type { PlaneState } from "@/lib/aircraft";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-export type PlaneState = {
-  id: string;
-  callsign: string;
-  lat: number;
-  lng: number;
-  altitudeFt: number | null;
-  velocityKts: number | null;
-  heading: number | null;
-  onGround: boolean;
-  originCountry: string;
-};
 
 /**
  * Live aircraft via OpenSky Network (free, anonymous, rate-limited).
@@ -27,18 +16,28 @@ export async function GET(req: NextRequest) {
   const lomin = Number(sp.get("lomin"));
   const lamax = Number(sp.get("lamax"));
   const lomax = Number(sp.get("lomax"));
+  const query = sanitizeQuery(sp.get("q"), 12).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const directIcao = /^[0-9A-F]{6}$/.test(query);
+  const validBox = isValidBBox(lamin, lomin, lamax, lomax);
 
-  if (!isValidBBox(lamin, lomin, lamax, lomax)) {
+  if (!validBox && !directIcao) {
     return NextResponse.json(
-      { error: "Valid lamin/lomin/lamax/lomax required (max ~40°×60°)" },
+      { error: "A valid map area is required, or search by a 6-character ICAO24 hex id." },
       { status: 400 }
     );
   }
 
   try {
-    const url =
-      `https://opensky-network.org/api/states/all` +
-      `?lamin=${lamin}&lomin=${lomin}&lamax=${lamax}&lomax=${lomax}`;
+    const params = new URLSearchParams();
+    if (directIcao) {
+      params.set("icao24", query.toLowerCase());
+    } else {
+      params.set("lamin", String(lamin));
+      params.set("lomin", String(lomin));
+      params.set("lamax", String(lamax));
+      params.set("lomax", String(lomax));
+    }
+    const url = `https://opensky-network.org/api/states/all?${params.toString()}`;
     const res = await fetchUpstream(url, {
       timeoutMs: 12000,
       headers: { "User-Agent": "SentinelWatch/1.0" },
@@ -57,7 +56,7 @@ export async function GET(req: NextRequest) {
       const altM = row[7];
       const velMs = row[9];
       const track = row[10];
-      planes.push({
+      const plane: PlaneState = {
         id: String(row[0] ?? `${lat}-${lng}`),
         callsign: String(row[1] ?? "").trim() || "UNKN",
         lat,
@@ -67,7 +66,16 @@ export async function GET(req: NextRequest) {
         heading: Number.isFinite(track) ? track : null,
         onGround,
         originCountry: String(row[2] ?? ""),
-      });
+      };
+      if (
+        query &&
+        !directIcao &&
+        !plane.callsign.replace(/\s/g, "").toUpperCase().includes(query) &&
+        !plane.id.toUpperCase().includes(query)
+      ) {
+        continue;
+      }
+      planes.push(plane);
       if (planes.length >= 180) break;
     }
 

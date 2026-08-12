@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import StormClient from "./StormClient";
+import { sanitizeDisplayTitle } from "@/lib/security";
 
-type Props = { searchParams: Promise<{ title?: string }> };
+type Props = { searchParams: Promise<{ title?: string; id?: string }> };
 
 export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
   const sp = await searchParams;
-  const name = sp.title || "Severe storm";
-  const title = `Storm report · ${name} · SentinelWatch`;
+  const label = sanitizeDisplayTitle(sp.id, 40) || "Severe storm";
+  const title = `Storm report · ${label} · SentinelWatch`;
   const description =
     "Storm catcher brief with risk score, local conditions, outlook, and safety guidance.";
 

@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { takeRateLimit } from "@/lib/rate-limit";
 
 /**
- * Security layer: headers, CSP, same-site API gate, in-memory rate limits.
- * Rate-limit Map is per-instance (fine on a single Node/dev box; use an edge KV
- * before multi-region production scale).
+ * Security layer: headers, nonce CSP, same-site API gate, durable rate limits.
+ * Rate limits use Upstash Redis REST when configured; otherwise in-memory fallback.
  */
-
-type Bucket = { count: number; resetAt: number };
-
-const buckets = new Map<string, Bucket>();
 
 const FEEDS_LIMIT = { max: 8, windowMs: 60_000 };
 const CLIMATE_LIMIT = { max: 30, windowMs: 60_000 };
@@ -18,45 +14,36 @@ const API_LIMIT = { max: 60, windowMs: 60_000 };
 const AID_COOKIE = "sw_aid";
 const AID_MAX_AGE = 60 * 60 * 24 * 7;
 
+/** Only trust forwarded client IPs when running behind a known edge proxy. */
+function behindTrustedProxy(): boolean {
+  return (
+    process.env.VERCEL === "1" ||
+    process.env.CF_PAGES === "1" ||
+    process.env.TRUST_PROXY === "1"
+  );
+}
+
 function clientIp(req: NextRequest): string {
+  if (!behindTrustedProxy()) {
+    return "direct";
+  }
+
   const platform =
-    req.headers.get("x-real-ip")?.trim() ||
     req.headers.get("cf-connecting-ip")?.trim() ||
-    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim();
+    req.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip")?.trim();
   if (platform) return platform;
 
-  if (process.env.TRUST_PROXY === "1") {
-    const fwd = req.headers.get("x-forwarded-for");
-    if (fwd) {
-      const parts = fwd
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (parts.length) return parts[parts.length - 1];
-    }
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) {
+    const parts = fwd
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length) return parts[0];
   }
 
   return "unknown";
-}
-
-function takeToken(key: string, max: number, windowMs: number): boolean {
-  const now = Date.now();
-  const cur = buckets.get(key);
-  if (!cur || now >= cur.resetAt) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return true;
-  }
-  if (cur.count >= max) return false;
-  cur.count += 1;
-  return true;
-}
-
-function maybePrune() {
-  if (buckets.size < 2000) return;
-  const now = Date.now();
-  for (const [k, v] of buckets) {
-    if (now >= v.resetAt) buckets.delete(k);
-  }
 }
 
 function randomToken(): string {
@@ -65,11 +52,21 @@ function randomToken(): string {
   return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Cryptographically random CSP nonce (base64url, attribute-safe). */
+function createNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  // btoa is available in Edge middleware
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
 function requestHost(req: NextRequest): string {
-  return (req.headers.get("x-forwarded-host") || req.headers.get("host") || "")
-    .split(",")[0]
-    .trim()
-    .toLowerCase();
+  const raw = behindTrustedProxy()
+    ? req.headers.get("x-forwarded-host") || req.headers.get("host") || ""
+    : req.headers.get("host") || "";
+  return raw.split(",")[0].trim().toLowerCase();
 }
 
 function hostFromUrl(raw: string | null): string | null {
@@ -92,8 +89,6 @@ function isCrossSiteBrowserCall(req: NextRequest): boolean {
   const originHost = hostFromUrl(req.headers.get("origin"));
   if (originHost && originHost !== host) return true;
 
-  // Only enforce Referer when Sec-Fetch-Site says it is a cross-site navigation/fetch
-  // (plain curl has neither Origin nor Sec-Fetch-Site).
   return false;
 }
 
@@ -107,7 +102,7 @@ function attachAidCookie(req: NextRequest, res: NextResponse): void {
   const secure =
     process.env.NODE_ENV === "production" ||
     req.nextUrl.protocol === "https:" ||
-    req.headers.get("x-forwarded-proto") === "https";
+    (behindTrustedProxy() && req.headers.get("x-forwarded-proto") === "https");
   res.cookies.set(AID_COOKIE, randomToken(), {
     httpOnly: true,
     sameSite: "strict",
@@ -117,30 +112,38 @@ function attachAidCookie(req: NextRequest, res: NextResponse): void {
   });
 }
 
-function buildCsp(): string {
-  const connect = [
+function buildCsp(nonce: string): string {
+  const isProd = process.env.NODE_ENV === "production";
+  const isDev = !isProd;
+  // React Refresh needs unsafe-eval in development only.
+  const scriptSrc = [
     "'self'",
-    "https://maps.googleapis.com",
-    "https://*.googleapis.com",
-    "https://*.gstatic.com",
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+    isDev ? "'unsafe-eval'" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  // React inline style={{}} attributes still need unsafe-inline for styles.
+  // Scripts are the XSS payload surface — those use nonces, not unsafe-inline.
+  const styleSrc = "'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com";
+
+  const connectParts = [
+    "'self'",
     "https://*.basemaps.cartocdn.com",
     "https://tilecache.rainviewer.com",
     "https://*.api.radio-browser.info",
     "https://de1.api.radio-browser.info",
-    // Next.js / HMR in local beta
-    "ws:",
-    "wss:",
-  ].join(" ");
+  ];
+  if (isDev) connectParts.push("ws:", "wss:");
 
   const frames = [
     "'self'",
     "https://www.youtube.com",
     "https://www.youtube-nocookie.com",
     "https://www.dailymotion.com",
-    "https://*.dailymotion.com",
-    "https://www.google.com",
-    "https://maps.google.com",
-    "https://earth.google.com",
+    "https://geo.dailymotion.com",
   ].join(" ");
 
   const directives = [
@@ -149,23 +152,23 @@ function buildCsp(): string {
     "form-action 'self'",
     "object-src 'none'",
     "frame-ancestors 'self'",
-    "script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://*.googleapis.com https://*.gstatic.com",
-    "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
-    // Map tiles + webcam thumbs come from many CDNs
+    `script-src ${scriptSrc}`,
+    `style-src ${styleSrc}`,
     "img-src 'self' data: blob: https:",
     "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com",
-    "media-src 'self' blob: https:",
-    `connect-src ${connect}`,
+    "media-src 'self' blob: https: http:",
+    `connect-src ${connectParts.join(" ")}`,
     "worker-src 'self' blob:",
     `frame-src ${frames}`,
   ];
-  if (process.env.NODE_ENV === "production") {
-    directives.push("upgrade-insecure-requests");
-  }
+  if (isProd) directives.push("upgrade-insecure-requests");
   return directives.join("; ");
 }
 
-function securityHeaders(res: NextResponse, opts?: { noStore?: boolean }): NextResponse {
+function securityHeaders(
+  res: NextResponse,
+  opts: { noStore?: boolean; nonce: string }
+): NextResponse {
   res.headers.set("X-Content-Type-Options", "nosniff");
   res.headers.set("X-Frame-Options", "SAMEORIGIN");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -176,8 +179,8 @@ function securityHeaders(res: NextResponse, opts?: { noStore?: boolean }): NextR
   res.headers.set("X-DNS-Prefetch-Control", "off");
   res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
-  res.headers.set("Content-Security-Policy", buildCsp());
-  if (opts?.noStore) {
+  res.headers.set("Content-Security-Policy", buildCsp(opts.nonce));
+  if (opts.noStore) {
     res.headers.set("Cache-Control", "no-store, max-age=0");
   }
   if (process.env.NODE_ENV === "production") {
@@ -192,23 +195,55 @@ function apiLimitFor(pathname: string): { max: number; windowMs: number; key: st
   if (
     pathname.startsWith("/api/storm-report") ||
     pathname.startsWith("/api/conflict-report") ||
-    pathname.startsWith("/api/hazards")
+    pathname.startsWith("/api/hazards") ||
+    pathname.startsWith("/api/events")
   ) {
     return { ...REPORT_LIMIT, key: "report" };
   }
   return { ...API_LIMIT, key: "api" };
 }
 
-export function middleware(req: NextRequest) {
-  maybePrune();
+/** All upstream-proxy routes require a same-site browse cookie. */
+function isAidGated(pathname: string): boolean {
+  return (
+    pathname.startsWith("/api/feeds") ||
+    pathname.startsWith("/api/climate") ||
+    pathname.startsWith("/api/planes") ||
+    pathname.startsWith("/api/news") ||
+    pathname.startsWith("/api/geocode") ||
+    pathname.startsWith("/api/reverse") ||
+    pathname.startsWith("/api/weather") ||
+    pathname.startsWith("/api/events") ||
+    pathname.startsWith("/api/hazards") ||
+    pathname.startsWith("/api/storm-report") ||
+    pathname.startsWith("/api/conflict-report") ||
+    pathname.startsWith("/api/storms") ||
+    pathname.startsWith("/api/fires") ||
+    pathname.startsWith("/api/combat") ||
+    pathname.startsWith("/api/space") ||
+    pathname.startsWith("/api/radar")
+  );
+}
+
+function nextWithNonce(req: NextRequest, nonce: string): NextResponse {
+  const requestHeaders = new Headers(req.headers);
+  // Mitigate request-header CSP/nonce poisoning (see Next GHSA-ffhc-5mcf-pf4q class issues)
+  requestHeaders.delete("content-security-policy");
+  requestHeaders.delete("content-security-policy-report-only");
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set("Content-Security-Policy", buildCsp(nonce));
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
+export async function middleware(req: NextRequest) {
+  const nonce = createNonce();
   const { pathname } = req.nextUrl;
 
   if (pathname.startsWith("/api/")) {
-    // All public route handlers are GET-only.
     if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
       const res = NextResponse.json({ error: "Method not allowed" }, { status: 405 });
       res.headers.set("Allow", "GET, HEAD");
-      return securityHeaders(res, { noStore: true });
+      return securityHeaders(res, { noStore: true, nonce });
     }
 
     if (isCrossSiteBrowserCall(req)) {
@@ -216,40 +251,36 @@ export function middleware(req: NextRequest) {
         { error: "Cross-origin API access is not allowed." },
         { status: 403 }
       );
-      return securityHeaders(res, { noStore: true });
+      return securityHeaders(res, { noStore: true, nonce });
     }
 
-    // Require a same-site HttpOnly browse cookie for costly upstream proxies.
-    const expensive =
-      pathname.startsWith("/api/feeds") ||
-      pathname.startsWith("/api/climate") ||
-      pathname.startsWith("/api/planes") ||
-      pathname.startsWith("/api/news") ||
-      pathname.startsWith("/api/geocode");
-
-    if (expensive && !hasAidCookie(req)) {
+    if (isAidGated(pathname) && !hasAidCookie(req)) {
       const res = NextResponse.json(
         { error: "Open SentinelWatch in the browser first, then retry." },
         { status: 403 }
       );
-      return securityHeaders(res, { noStore: true });
+      return securityHeaders(res, { noStore: true, nonce });
     }
 
     const ip = clientIp(req);
     const limit = apiLimitFor(pathname);
-    const bucketKey = `${ip}:${limit.key}`;
+    const aid = req.cookies.get(AID_COOKIE)?.value?.slice(0, 16) || "noaid";
+    const bucketKey = `${limit.key}:${ip}:${aid}`;
 
-    if (!takeToken(bucketKey, limit.max, limit.windowMs)) {
+    const rl = await takeRateLimit(bucketKey, limit.max, limit.windowMs);
+    if (!rl.ok) {
       const res = NextResponse.json(
         { error: "Rate limit exceeded. Try again shortly." },
         { status: 429 }
       );
-      res.headers.set("Retry-After", "60");
-      return securityHeaders(res, { noStore: true });
+      const retryAfter = Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000));
+      res.headers.set("Retry-After", String(retryAfter));
+      res.headers.set("X-RateLimit-Remaining", "0");
+      return securityHeaders(res, { noStore: true, nonce });
     }
 
-    const res = securityHeaders(NextResponse.next(), { noStore: true });
-    // Soft-set cookie on API too so first paint races recover
+    const res = securityHeaders(nextWithNonce(req, nonce), { noStore: true, nonce });
+    res.headers.set("X-RateLimit-Remaining", String(rl.remaining));
     attachAidCookie(req, res);
     return res;
   }
@@ -259,7 +290,7 @@ export function middleware(req: NextRequest) {
     pathname.startsWith("/onboarding") ||
     pathname.startsWith("/app");
 
-  const res = securityHeaders(NextResponse.next(), { noStore });
+  const res = securityHeaders(nextWithNonce(req, nonce), { noStore, nonce });
   attachAidCookie(req, res);
   return res;
 }

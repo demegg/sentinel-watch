@@ -39,7 +39,16 @@ export function clampRadiusKm(raw: number, fallback: number, max: number): numbe
 
 export function sanitizeQuery(q: string | null | undefined, max = MAX_QUERY_LEN): string {
   if (!q) return "";
-  return q.trim().slice(0, max).replace(/[\u0000-\u001f\u007f]/g, "");
+  return q
+    .trim()
+    .slice(0, max)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[&=?#]/g, "");
+}
+
+/** ISO 3166-1 alpha-2 only. */
+export function isSafeCountryCode(code: string | null | undefined): code is string {
+  return Boolean(code && /^[A-Z]{2}$/.test(code));
 }
 
 /**
@@ -63,9 +72,70 @@ export function safeHttpUrl(
   }
 }
 
+const THUMB_HOST_SUFFIXES = [
+  "ytimg.com",
+  "ggpht.com",
+  "googleusercontent.com",
+  "windy.com",
+  "staticflickr.com",
+  "twimg.com",
+  "dmcdn.net",
+  "dailymotion.com",
+  "radio-browser.info",
+];
+
+/** HTTPS thumbnails from known media CDNs only. */
+export function safeThumbnailUrl(raw: string | null | undefined): string | null {
+  const href = safeHttpUrl(raw);
+  if (!href) return null;
+  try {
+    const host = new URL(href).hostname.toLowerCase();
+    if (
+      THUMB_HOST_SUFFIXES.some(
+        (suffix) => host === suffix || host.endsWith(`.${suffix}`)
+      )
+    ) {
+      return href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 /** YouTube video id only (used as streamUrl for youtube kind). */
 export function isSafeYoutubeId(id: string): boolean {
-  return /^[\w-]{6,20}$/.test(id);
+  return /^[\w-]{11}$/.test(id);
+}
+
+/**
+ * Dailymotion embeds must be real embed hosts + /embed/ path.
+ * Never use string.includes("dailymotion.com") for classification.
+ */
+export function isSafeDailymotionEmbed(raw: string | null | undefined): boolean {
+  const href = safeHttpUrl(raw);
+  if (!href) return false;
+  try {
+    const u = new URL(href);
+    const host = u.hostname.toLowerCase();
+    const allowed =
+      host === "www.dailymotion.com" ||
+      host === "geo.dailymotion.com" ||
+      host === "dailymotion.com";
+    return allowed && u.pathname.startsWith("/embed/");
+  } catch {
+    return false;
+  }
+}
+
+/** Host equality helper for stream classification (no substring tricks). */
+export function hostnameEquals(raw: string, allowed: string[]): boolean {
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return allowed.some((a) => host === a || host.endsWith(`.${a}`));
+  } catch {
+    return false;
+  }
 }
 
 export function safeClientError(err: unknown, fallback = "Request failed"): string {
@@ -77,4 +147,14 @@ export function safeClientError(err: unknown, fallback = "Request failed"): stri
     return msg.replace(/[<>]/g, "");
   }
   return fallback;
+}
+
+/** Strip attacker-controlled OG title noise. */
+export function sanitizeDisplayTitle(raw: string | null | undefined, max = 80): string {
+  if (!raw) return "";
+  return raw
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[<>`]/g, "")
+    .trim()
+    .slice(0, max);
 }

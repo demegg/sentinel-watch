@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
+import { headers } from "next/headers";
 import "leaflet/dist/leaflet.css";
 import "./globals.css";
 
@@ -21,7 +23,13 @@ export const viewport: Viewport = {
   themeColor: "#0a0e14",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Nonce CSP requires per-request rendering so Next can stamp scripts.
+  await connection();
+  // Read so the request CSP/x-nonce from middleware stays in the render path.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  void nonce;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>

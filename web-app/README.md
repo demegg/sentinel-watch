@@ -10,6 +10,10 @@ Next.js web app for **SentinelWatch** — global crisis monitoring, no login req
 - **Live crisis events** — aggregated from USGS earthquakes, NASA EONET, GDACS, Wikidata conflicts, Open-Meteo
 - **Live webcams** — OpenStreetMap + YouTube Live via Piped API, with HLS/image playback
 - **Live radio** — Radio Browser community directory, audio player in browser
+- **SkyTrace aircraft finder** — search live callsigns/ICAO24, follow breadcrumb trails, and see crisis proximity
+- **Earth-watch layers** — aircraft, combat zones, storms, fires, quake rings, space weather, and radar
+- **Safety intelligence** — region, conflict, and storm reports with risk scores and source trust
+- **Personal watchlist** — saved places, alerts, and profile controls
 - **Download page** — `/download` links the Android APK
 
 ## Run
@@ -55,7 +59,7 @@ src/
   store/sw-store.ts           # Zustand global state
 ```
 
-## All APIs used are free and keyless
+## Core APIs are free and keyless
 
 | API | Used for |
 |---|---|
@@ -68,3 +72,4 @@ src/
 | Overpass API (OSM) | Nearby webcams |
 | Piped (YouTube) | Live YouTube webcam search |
 | Radio Browser | Local radio stations |
+| OpenSky Network | Live aircraft telemetry |
